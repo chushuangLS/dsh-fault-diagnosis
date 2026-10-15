@@ -154,6 +154,7 @@ class DiagnosisSession:
         self.symptom = ''          # 原始故障描述
         self.need_repair = False   # 结论是否需要报修
         self.conclusion = ''       # 诊断结论
+        self._last_asked_classroom = False   # AI 上一句是否在问教室号
 
         # 初始化：系统提示词
         self.history.append({"role": "system", "content": SYSTEM_PROMPT})
@@ -168,6 +169,44 @@ class DiagnosisSession:
         """记录用户最初描述的故障现象"""
         self.symptom = text
 
+    def _extract_classroom(self, user_input):
+        """
+        从用户输入中提取教室号
+
+        两种策略：
+          1. 上下文优先：如果 AI 上一句在问教室号，那么用户这轮的任何回答
+             都当作教室号处理（用户可能只回一个 "501"）
+          2. 正则兜底：从文本里查找形如 "305教室" / "教室305" / "A203" 的内容
+        """
+        import re
+
+        text = user_input.strip()
+
+        # ---- 策略 1：上下文判断 ----
+        # 检查 AI 上一条回复是否在问教室号
+        if self._last_asked_classroom:
+            # 用户可能在回答里带多余的字，提取其中的编号
+            m = re.search(r'([A-Za-z]?\d{1,4})', text)
+            if m:
+                return m.group(1)
+            # 实在提不出数字，就把整句当教室号（如"三楼东边那间"）
+            if text and len(text) <= 20:
+                return text
+
+        # ---- 策略 2：正则匹配 ----
+        patterns = [
+            r'([A-Za-z]?\d{3,4})\s*(?:教室|机房|室|房间)',   # 305教室 / A203机房
+            r'(?:教室|机房|室|房间)\s*([A-Za-z]?\d{3,4})',   # 教室305
+            r'([A-Za-z]\d{3,4})',                            # A203
+            r'^([A-Za-z]?\d{3,4})$',                         # 纯数字 501（单独一行时）
+        ]
+        for pat in patterns:
+            m = re.search(pat, text)
+            if m:
+                return m.group(1)
+
+        return None
+
     def send(self, user_input):
         """
         发送用户输入，返回 AI 回复
@@ -177,21 +216,11 @@ class DiagnosisSession:
         # 记录用户输入
         self.history.append({"role": "user", "content": user_input})
 
-        # 尝试从用户输入里提取教室号（如 "107"、"A203"）
+        # 尝试提取教室号
         if not self.classroom:
-            import re
-            # 匹配教室号：支持 "305教室"、"教室305"、"A203"、"107室" 等写法
-            # 注意：中文与数字之间没有 \b 单词边界，所以不能用 \b
-            patterns = [
-                r'([A-Za-z]?\d{3,4})\s*(?:教室|机房|室|房间)',   # 305教室 / A203机房
-                r'(?:教室|机房|室|房间)\s*([A-Za-z]?\d{3,4})',   # 教室305
-                r'([A-Za-z]\d{3,4})',                            # A203
-            ]
-            for pat in patterns:
-                m = re.search(pat, user_input)
-                if m:
-                    self.classroom = m.group(1)
-                    break
+            extracted = self._extract_classroom(user_input)
+            if extracted:
+                self.classroom = extracted
 
         # 调用 API（带上完整历史）
         response = self.client.chat.completions.create(
@@ -205,6 +234,13 @@ class DiagnosisSession:
 
         # 记录 AI 回复
         self.history.append({"role": "assistant", "content": reply})
+
+        # 判断 AI 刚才是不是在问教室号
+        # 用于下一轮把用户的回答直接当教室号处理
+        self._last_asked_classroom = (
+            not self.classroom
+            and ('教室' in reply and ('哪' in reply or '几' in reply))
+        )
 
         # 判断是否需要报修（要在剥离标记前判断）
         if REPAIR_MARKER in reply:
