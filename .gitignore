@@ -35,6 +35,9 @@ desktop.ini
 *.log
 logs/
 
+# 运维记录（含实际教室号和故障信息，不公开）
+data/repair_records.csv
+
 # 测试与缓存
 .pytest_cache/
 .coverage

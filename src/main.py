@@ -1,9 +1,10 @@
 """
 机房故障智能诊断助手 - 主程序
 
-交互方式：对话式逐层排查
-  用户描述故障 → AI 问一个关键问题 → 用户回答 → AI 继续追问
-  → 直到 AI 定位到原因，输出结论
+功能：
+  1. 对话式逐层排查故障（AI 驱动）
+  2. 自动记录教室号，需报修的故障写入记录表
+  3. 支持查看和修改报修记录
 
 作者：liyishuo1
 """
@@ -12,6 +13,7 @@ import json
 import os
 
 from ai_diagnosis import DiagnosisSession
+import repair_log
 
 DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'fault_cases.json')
 
@@ -36,10 +38,23 @@ def show_case(case):
         print(f"  {i}. {step}")
 
 
+def print_help():
+    """打印帮助"""
+    print()
+    print("可用命令：")
+    print("  q          退出程序")
+    print("  r          重新开始一次诊断")
+    print("  log        查看所有报修记录")
+    print("  log 未报修  按状态筛选记录")
+    print("  done 编号 状态   修改记录状态，如：done R001 已解决")
+    print("  help       显示本帮助")
+    print()
+
+
 def main():
     """主程序入口"""
     print("=" * 55)
-    print("  机房故障智能诊断助手  v0.4.0")
+    print("  机房故障智能诊断助手  v0.5.0")
     print("=" * 55)
     print()
 
@@ -52,42 +67,61 @@ def main():
 
     print()
     print("请描述遇到的故障，我会一步步引导你排查")
-    print("（随时输入 q 退出，输入 r 重新开始一次诊断）")
+    print("输入 help 查看可用命令")
     print()
 
-    # 当前诊断会话，None 表示还没开始
     session = None
 
     while True:
-        # 根据是否在诊断中，显示不同的提示符
-        if session is None:
-            prompt = "故障描述："
-        else:
-            prompt = "你的回答："
-
+        prompt = "故障描述：" if session is None else "你的回答："
         user_input = input(prompt).strip()
 
-        # 全局命令
+        if not user_input:
+            print("请输入内容")
+            continue
+
+        # ============ 命令处理 ============
         if user_input == 'q':
             print("再见！")
             break
+
+        if user_input == 'help':
+            print_help()
+            continue
 
         if user_input == 'r':
             session = None
             print("\n--- 已重置，请重新描述故障 ---\n")
             continue
 
-        if not user_input:
-            print("请输入内容")
+        # 查看记录：log 或 log 状态
+        if user_input.startswith('log'):
+            parts = user_input.split()
+            status_filter = parts[1] if len(parts) > 1 else None
+            show_records_safe(status_filter)
             continue
 
-        # 首次输入：创建新会话
+        # 修改状态：done R001 已解决
+        if user_input.startswith('done'):
+            parts = user_input.split()
+            if len(parts) < 3:
+                print("用法：done 记录编号 新状态")
+                print(f"状态可选：{' / '.join(repair_log.ALL_STATUS)}")
+                continue
+            rid, new_status = parts[1], parts[2]
+            note = ' '.join(parts[3:]) if len(parts) > 3 else ''
+            ok, msg = repair_log.update_status(rid, new_status, note)
+            print(('✅ ' if ok else '❌ ') + msg)
+            continue
+
+        # ============ 诊断流程 ============
         if session is None:
             print()
             print("正在分析，请稍候...")
             print()
             try:
                 session = DiagnosisSession()
+                session.set_symptom(user_input)
             except Exception as e:
                 print(f"[提示] AI 不可用：{e}")
                 print("已切换到本地知识库匹配\n")
@@ -99,9 +133,8 @@ def main():
                     print("本地知识库未找到匹配案例。\n")
                 continue
 
-        # 发送给 AI
         try:
-            reply, finished = session.send(user_input)
+            reply, finished, need_repair = session.send(user_input)
 
             print()
             if finished:
@@ -110,10 +143,24 @@ def main():
                 print("=" * 55)
                 print(reply)
                 print("=" * 55)
+
+                # 需要报修 → 写入记录
+                if need_repair:
+                    classroom = session.classroom or '未填写'
+                    rid = repair_log.add_record(
+                        classroom=classroom,
+                        symptom=session.symptom,
+                        conclusion=reply,
+                        status=repair_log.STATUS_PENDING,
+                    )
+                    print()
+                    print(f"📝 已记录为待报修（编号 {rid}，教室 {classroom}）")
+                    print(f"   报修后请执行：done {rid} 已报修")
+
                 print()
                 print("--- 本次诊断结束，可继续描述下一个故障 ---")
                 print()
-                session = None          # 结束会话
+                session = None
             else:
                 print(f"→ {reply}")
                 print()
@@ -122,6 +169,14 @@ def main():
             print(f"\n[错误] AI 调用失败：{e}")
             print("已结束本次诊断\n")
             session = None
+
+
+def show_records_safe(status_filter=None):
+    """安全地显示记录（处理文件异常）"""
+    try:
+        repair_log.show_records(status_filter)
+    except Exception as e:
+        print(f"[错误] 读取记录失败：{e}")
 
 
 if __name__ == '__main__':
