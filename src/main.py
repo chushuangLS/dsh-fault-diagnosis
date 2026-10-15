@@ -11,6 +11,12 @@
 
 import json
 import os
+import sys
+
+# 把本文件所在目录加入模块搜索路径
+# 这样无论在哪个目录运行（python src/main.py 或 cd src 后运行），
+# 都能正确导入同目录下的 ai_diagnosis 和 repair_log
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ai_diagnosis import DiagnosisSession
 import repair_log
