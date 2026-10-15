@@ -1,0 +1,10 @@
+{
+    "python.analysis.extraPaths": [
+        "./src"
+    ],
+    "python.autoComplete.extraPaths": [
+        "./src"
+    ],
+    "python.analysis.typeCheckingMode": "basic",
+    "files.encoding": "utf8"
+}

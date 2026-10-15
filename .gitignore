@@ -21,7 +21,9 @@ ENV/
 *.env
 
 # IDE
-.vscode/
+# 保留 .vscode/settings.json（团队共享的编辑器配置），排除个人配置
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
