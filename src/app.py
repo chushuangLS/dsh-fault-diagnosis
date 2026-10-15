@@ -1,0 +1,290 @@
+"""
+机房故障智能诊断助手 - Web 版后端
+
+基于 Flask 提供 HTTP 接口，前端通过 AJAX 调用。
+核心诊断逻辑复用 ai_diagnosis 和 repair_log 模块。
+
+启动方式：
+    python src/app.py
+然后浏览器访问 http://127.0.0.1:5000
+
+作者：liyishuo1
+"""
+
+import json
+import os
+import sys
+import uuid
+
+from flask import Flask, request, jsonify, render_template, session
+
+# 确保能导入同目录模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from ai_diagnosis import DiagnosisSession
+import repair_log
+
+# Flask 应用配置
+# templates 和 static 目录放在项目根下
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'web', 'templates'),
+    static_folder=os.path.join(BASE_DIR, 'web', 'static'),
+)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-me')
+
+# 会话存储：session_id -> DiagnosisSession
+# 说明：内存存储，重启服务后丢失。对于机房现场使用足够。
+#       后续如需持久化可改为文件或数据库。
+SESSIONS = {}
+
+
+def get_session():
+    """获取或创建当前浏览器的诊断会话"""
+    sid = session.get('sid')
+    if not sid or sid not in SESSIONS:
+        sid = str(uuid.uuid4())
+        session['sid'] = sid
+        SESSIONS[sid] = DiagnosisSession()
+    return SESSIONS[sid]
+
+
+@app.route('/')
+def index():
+    """主页"""
+    return render_template('index.html')
+
+
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    """
+    对话接口
+
+    请求体：{"message": "用户输入"}
+    响应：{"reply": "AI 回复", "finished": bool, "need_repair": bool,
+           "record_id": "R001" 或 null, "classroom": "501"}
+    """
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+
+    if not message:
+        return jsonify({'error': '消息不能为空'}), 400
+
+    # 重置会话
+    if message == 'reset':
+        sid = session.get('sid')
+        if sid:
+            SESSIONS[sid] = DiagnosisSession()
+        return jsonify({'reply': '已重置，请重新描述故障', 'finished': False,
+                        'need_repair': False, 'reset': True})
+
+    try:
+        ds = get_session()
+
+        # 第一次输入时记录原始故障描述
+        if not ds.symptom:
+            ds.set_symptom(message)
+
+        reply, finished, need_repair = ds.send(message)
+
+        result = {
+            'reply': reply,
+            'finished': finished,
+            'need_repair': need_repair,
+            'classroom': ds.classroom or '',
+            'record_id': None,
+        }
+
+        # 需要报修 → 写入台账
+        if finished and need_repair:
+            rid = repair_log.add_record(
+                classroom=ds.classroom or '未填写',
+                symptom=ds.symptom,
+                conclusion=reply,
+                status=repair_log.STATUS_PENDING,
+            )
+            result['record_id'] = rid
+
+        # 结束的会话从内存里移除，下次重新开始
+        if finished:
+            sid = session.get('sid')
+            if sid:
+                SESSIONS.pop(sid, None)
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': f'AI 调用失败：{e}'}), 500
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+def api_chat_stream():
+    """
+    流式对话接口（Server-Sent Events）
+
+    逐段推送 AI 回复，前端逐字显示。
+    最后一条消息 type=end，携带 finished / need_repair 等状态。
+
+    注意：生成器在请求上下文之外执行，
+          因此所有依赖 request/session 的数据必须在进入生成器前取出。
+    """
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+
+    if not message:
+        return jsonify({'error': '消息不能为空'}), 400
+
+    # ---- 在请求上下文内完成所有 session 操作 ----
+    sid = session.get('sid')
+
+    if message == 'reset':
+        if sid:
+            SESSIONS[sid] = DiagnosisSession()
+        else:
+            SESSIONS[str(uuid.uuid4())] = DiagnosisSession()
+        reset_sid = session.get('sid')
+
+        def gen_reset():
+            yield f"data: {json.dumps({'type': 'text', 'content': '已重置，请重新描述故障'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'end', 'finished': False, 'need_repair': False, 'reset': True, 'classroom': ''}, ensure_ascii=False)}\n\n"
+
+        return app.response_class(
+            gen_reset(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
+
+    # 建立（或复用）会话，并把对象取出来
+    ds = get_session()
+    sid = session.get('sid')
+
+    if not ds.symptom:
+        ds.set_symptom(message)
+
+    def generate():
+        try:
+            for chunk in ds.send_stream(message):
+                if chunk['type'] == 'text':
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+                elif chunk['type'] == 'end':
+                    payload = dict(chunk)
+                    payload['record_id'] = None
+
+                    # 需要报修 → 写入台账
+                    if payload.get('finished') and payload.get('need_repair'):
+                        rid = repair_log.add_record(
+                            classroom=payload.get('classroom') or '未填写',
+                            symptom=ds.symptom,
+                            conclusion=payload.get('reply', ''),
+                            status=repair_log.STATUS_PENDING,
+                        )
+                        payload['record_id'] = rid
+
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+                    # 结束后清理会话
+                    if payload.get('finished') and sid:
+                        SESSIONS.pop(sid, None)
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return app.response_class(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )
+
+
+@app.route('/api/records', methods=['GET'])
+def api_records():
+    """获取报修记录，支持按状态筛选"""
+    status = request.args.get('status') or None
+    try:
+        records = repair_log.load_records()
+        if status:
+            records = [r for r in records if r['状态'] == status]
+        # 倒序，最新的在前
+        records = list(reversed(records))
+        return jsonify({'records': records, 'statuses': repair_log.ALL_STATUS})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/records/<record_id>', methods=['POST'])
+def api_update_record(record_id):
+    """修改记录状态"""
+    data = request.get_json(silent=True) or {}
+    new_status = data.get('status', '')
+    note = data.get('note', '')
+
+    ok, msg = repair_log.update_status(record_id, new_status, note)
+    if ok:
+        return jsonify({'ok': True, 'message': msg})
+    return jsonify({'ok': False, 'message': msg}), 400
+
+
+@app.route('/api/statistics', methods=['GET'])
+def api_statistics():
+    """统计数据（用于数据看板）"""
+    try:
+        records = repair_log.load_records()
+        by_status = {}
+        by_classroom = {}
+        by_date = {}
+
+        for r in records:
+            # 状态统计
+            by_status[r['状态']] = by_status.get(r['状态'], 0) + 1
+
+            # 教室统计
+            cr = r['教室']
+            by_classroom[cr] = by_classroom.get(cr, 0) + 1
+
+            # 日期统计（取时间的前 10 位，即 YYYY-MM-DD）
+            d = (r.get('时间') or '')[:10]
+            if d:
+                by_date[d] = by_date.get(d, 0) + 1
+
+        # 按故障次数排序的教室（前 10）
+        top_classrooms = sorted(by_classroom.items(), key=lambda x: -x[1])[:10]
+
+        # 日期升序
+        date_sorted = sorted(by_date.items())
+
+        total = len(records)
+        resolved = by_status.get(repair_log.STATUS_RESOLVED, 0)
+        resolve_rate = round(resolved / total * 100, 1) if total else 0
+
+        return jsonify({
+            'total': total,
+            'by_status': {
+                '未报修': by_status.get(repair_log.STATUS_PENDING, 0),
+                '已报修': by_status.get(repair_log.STATUS_REPORTED, 0),
+                '已解决': resolved,
+            },
+            'resolve_rate': resolve_rate,
+            'top_classrooms': top_classrooms,
+            'dates': [d for d, _ in date_sorted],
+            'date_counts': [n for _, n in date_sorted],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    print('=' * 55)
+    print('  机房故障智能诊断助手 · Web 版')
+    print('=' * 55)
+    print()
+    print('  访问地址: http://127.0.0.1:5000')
+    print('  按 Ctrl+C 停止服务')
+    print()
+
+    app.run(host='127.0.0.1', port=5000, debug=False)

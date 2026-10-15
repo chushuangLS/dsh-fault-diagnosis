@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机房故障智能诊断助手</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- 背景装饰层 -->
+<div class="bg-decor">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="grid-overlay"></div>
+</div>
+
+<!-- ========== 落地页 ========== -->
+<div id="landing" class="landing">
+  <div class="landing-inner">
+
+    <div class="hero">
+      <div class="hero-icon">🔧</div>
+      <h1>机房故障智能诊断助手</h1>
+      <p class="hero-sub">对话式排查 · AI 驱动 · 自动记录报修台账</p>
+    </div>
+
+    <div class="entry-grid">
+      <div class="entry-card" data-goto="chat">
+        <div class="entry-icon">💬</div>
+        <h3>开始诊断</h3>
+        <p>描述故障现象，AI 引导逐步排查</p>
+        <span class="entry-arrow">→</span>
+      </div>
+
+      <div class="entry-card" data-goto="records">
+        <div class="entry-icon">📋</div>
+        <h3>报修台账</h3>
+        <p>查看故障记录与处理进度</p>
+        <span class="entry-arrow">→</span>
+      </div>
+
+      <div class="entry-card" data-goto="stats">
+        <div class="entry-icon">📊</div>
+        <h3>数据看板</h3>
+        <p>故障统计与可视化分析</p>
+        <span class="entry-arrow">→</span>
+      </div>
+    </div>
+
+    <div class="landing-stats" id="landing-stats">
+      <div class="ls-item">
+        <span class="ls-num" id="ls-total">-</span>
+        <span class="ls-label">累计故障</span>
+      </div>
+      <div class="ls-divider"></div>
+      <div class="ls-item">
+        <span class="ls-num ls-warn" id="ls-pending">-</span>
+        <span class="ls-label">待处理</span>
+      </div>
+      <div class="ls-divider"></div>
+      <div class="ls-item">
+        <span class="ls-num ls-ok" id="ls-rate">-</span>
+        <span class="ls-label">解决率</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ========== 主应用 ========== -->
+<div id="app" class="app hidden">
+
+  <!-- 顶部导航 -->
+  <header class="topbar">
+    <div class="brand" id="brand-home" title="返回首页">
+      <span class="logo">🔧</span>
+      <div>
+        <h1>机房故障智能诊断助手</h1>
+        <p class="sub">对话式排查 · AI 驱动 · 自动记录</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-view="chat">诊断</button>
+      <button class="tab" data-view="records">报修记录</button>
+      <button class="tab" data-view="stats">数据看板</button>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ========== 诊断视图 ========== -->
+    <section id="view-chat" class="view active">
+      <div class="chat-wrap">
+
+        <!-- 顶部：加载更早消息（历史累积，不刷新页面） -->
+        <div class="chat-history-bar" id="history-bar">
+          <button id="scroll-top" class="history-btn">↑ 回到最早</button>
+          <span class="history-count" id="history-count"></span>
+        </div>
+
+        <div id="messages" class="messages">
+          <div class="turn bot">
+            <div class="turn-head">
+              <span class="turn-name">机房运维助手</span>
+              <span class="turn-time" data-time></span>
+            </div>
+            <div class="turn-body">
+              你好，我是机房运维助手。<br>
+              请描述遇到的故障，我会一步步引导你排查。
+            </div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <input id="input" type="text" placeholder="描述故障现象，例如：501教室电脑开不了机"
+                 autocomplete="off">
+          <button id="send" class="btn-primary">发送</button>
+          <button id="reset" class="btn-ghost" title="重新开始一次诊断">重新开始</button>
+        </div>
+
+        <!-- 回到底部按钮（上滑看历史后出现） -->
+        <button id="scroll-bottom" class="scroll-bottom hidden" title="回到最新">
+          ↓ 最新消息
+        </button>
+
+      </div>
+    </section>
+
+    <!-- ========== 记录视图 ========== -->
+    <section id="view-records" class="view">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>报修台账</h2>
+          <div class="filters">
+            <button class="chip active" data-status="">全部</button>
+            <button class="chip" data-status="未报修">未报修</button>
+            <button class="chip" data-status="已报修">已报修</button>
+            <button class="chip" data-status="已解决">已解决</button>
+          </div>
+        </div>
+        <div id="record-list" class="record-list"></div>
+      </div>
+    </section>
+
+    <!-- ========== 数据看板 ========== -->
+    <section id="view-stats" class="view">
+      <div class="dashboard">
+        <div class="dash-title">
+          <h2>机房运维数据看板</h2>
+          <span class="dash-sub" id="dash-updated"></span>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="kpi-value" id="kpi-total">-</div>
+            <div class="kpi-label">累计故障</div>
+          </div>
+          <div class="kpi kpi-red">
+            <div class="kpi-value" id="kpi-pending">-</div>
+            <div class="kpi-label">待报修</div>
+          </div>
+          <div class="kpi kpi-amber">
+            <div class="kpi-value" id="kpi-reported">-</div>
+            <div class="kpi-label">已报修</div>
+          </div>
+          <div class="kpi kpi-green">
+            <div class="kpi-value" id="kpi-resolved">-</div>
+            <div class="kpi-label">已解决</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-value" id="kpi-rate">-</div>
+            <div class="kpi-label">解决率</div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-card">
+            <h3>处理状态分布</h3>
+            <div id="chart-status" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>故障教室排行</h3>
+            <div id="chart-classroom" class="chart"></div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-card chart-wide">
+            <h3>故障趋势（按日期）</h3>
+            <div id="chart-trend" class="chart chart-tall"></div>
+          </div>
+        </div>
+
+        <div id="stats-empty" class="empty hidden">
+          <span class="icon">📊</span>
+          暂无统计数据，先去诊断几个故障吧
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== 右侧可拉出状态栏 ========== -->
+  <!-- 遮罩放在 #app 内部，与 .drawer 处于同一层叠上下文，避免侧栏被压暗 -->
+  <div id="drawer-mask" class="drawer-mask"></div>
+
+  <div id="drawer-handle" class="drawer-handle" title="展开状态栏">
+    <span class="handle-arrow">‹</span>
+    <span class="handle-text">状态</span>
+  </div>
+
+  <aside id="drawer" class="drawer">
+    <div class="drawer-head">
+      <h3>实时状态</h3>
+      <button id="drawer-close" class="drawer-close" title="收起">✕</button>
+    </div>
+
+    <div class="drawer-section">
+      <h4>当前会话</h4>
+      <div class="status-line">
+        <span class="status-key">教室</span>
+        <span class="status-val" id="d-classroom">—</span>
+      </div>
+      <div class="status-line">
+        <span class="status-key">排查轮次</span>
+        <span class="status-val" id="d-rounds">0</span>
+      </div>
+      <div class="status-line">
+        <span class="status-key">状态</span>
+        <span class="status-val" id="d-state">待开始</span>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <h4>最近记录</h4>
+      <div id="d-recent" class="recent-list">
+        <div class="recent-empty">暂无记录</div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <h4>快捷操作</h4>
+      <button class="drawer-btn" data-goto="records">查看全部记录</button>
+      <button class="drawer-btn" data-goto="stats">打开数据看板</button>
+      <button class="drawer-btn drawer-btn-ghost" id="d-reset">重新开始诊断</button>
+    </div>
+  </aside>
+
+</div>
+
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
