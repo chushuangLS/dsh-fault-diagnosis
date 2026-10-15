@@ -258,6 +258,75 @@ class DiagnosisSession:
 
         return clean, self.finished, self.need_repair
 
+    def send_stream(self, user_input):
+        """
+        流式发送用户输入
+
+        生成器，逐段 yield AI 回复的文本片段。
+        最后一段会 yield 一个特殊的结束标记字典，
+        包含 finished / need_repair / classroom 等状态。
+
+        用法：
+            for chunk in session.send_stream("电脑开不了机"):
+                if chunk['type'] == 'text':
+                    print(chunk['content'], end='')
+                elif chunk['type'] == 'end':
+                    print(chunk['finished'], chunk['need_repair'])
+        """
+        # 记录用户输入
+        self.history.append({"role": "user", "content": user_input})
+
+        # 尝试提取教室号
+        if not self.classroom:
+            extracted = self._extract_classroom(user_input)
+            if extracted:
+                self.classroom = extracted
+
+        # 流式调用
+        stream = self.client.chat.completions.create(
+            model=MODEL,
+            messages=self.history,
+            temperature=0.3,
+            max_tokens=300,
+            stream=True,
+        )
+
+        full = ''
+        for event in stream:
+            if not event.choices:
+                continue
+            delta = event.choices[0].delta
+            piece = getattr(delta, 'content', None)
+            if piece:
+                full += piece
+                yield {'type': 'text', 'content': piece}
+
+        # 流结束，处理标记
+        reply = full.strip()
+        self.history.append({"role": "assistant", "content": reply})
+
+        self._last_asked_classroom = (
+            not self.classroom
+            and ('教室' in reply and ('哪' in reply or '几' in reply))
+        )
+
+        if REPAIR_MARKER in reply:
+            self.need_repair = True
+        if DONE_MARKER in reply:
+            self.finished = True
+
+        clean = reply.replace(DONE_MARKER, '').replace(REPAIR_MARKER, '').strip()
+        if self.finished:
+            self.conclusion = clean
+
+        yield {
+            'type': 'end',
+            'reply': clean,
+            'finished': self.finished,
+            'need_repair': self.need_repair,
+            'classroom': self.classroom or '',
+        }
+
 
 # 单独运行测试
 if __name__ == '__main__':
