@@ -348,6 +348,59 @@ def flat_rooms():
     return out
 
 
+def buildings_with_stats():
+    """
+    返回两级结构（教学楼 → 教室），并给每间教室附上实时统计
+
+    为什么需要这个函数：
+      磁盘上的 classrooms.json 是**原始数据**，只存 name / total / note。
+      早期版本还存过一个手工填写的 broken 字段，后来改为
+      「损坏台数完全由报修台账推导」，但旧数据里的 broken 残留了下来。
+
+      如果直接把原始数据给前端，前端读到的就是**陈旧的手工值**
+      （例如某间教室残留 broken=4，而台账里实际是 3 台），
+      造成「教室详情页」与「教室列表」显示不一致。
+
+      这里统一由后端把实时统计合并进去，前端不需要自己做任何计算，
+      也就不可能出现两处口径不一致。
+
+    返回：与 load() 相同的结构，但每间教室多了统计字段
+    """
+    data = load()
+    status_map = _room_status_counts()
+
+    buildings = []
+    for b in data['buildings']:
+        rooms = []
+        for r in b['rooms']:
+            key = f"{b['name']}|{r['name']}"
+            by_status = status_map.get(key, {})
+
+            total = r.get('total', 0)
+            pending = by_status.get('未报修', 0)
+            self_fix = by_status.get('待自修', 0)
+            reported = by_status.get('已报修', 0)
+            resolved = by_status.get('已解决', 0)
+            broken = pending + self_fix + reported
+
+            rooms.append({
+                'name': r['name'],
+                'total': total,
+                'note': r.get('note', ''),
+                # ---- 实时统计（由报修台账推导，不是磁盘上的旧值）----
+                'broken': broken,
+                'healthy': max(total - broken, 0),
+                'self_fix_pcs': self_fix,
+                'pending_pcs': pending,
+                'reported_pcs': reported,
+                'resolved_pcs': resolved,
+            })
+
+        buildings.append({'name': b['name'], 'rooms': rooms})
+
+    return {'buildings': buildings}
+
+
 # 测试
 if __name__ == '__main__':
     print('教室台账模块测试')

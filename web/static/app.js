@@ -1605,10 +1605,10 @@ async function openRoomDetail(building, roomName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: btn.dataset.to }),
       });
-      // 重新加载本页 + 刷新抽屉与列表
+      // 重新加载本页 + 刷新侧边栏与教室列表
       openRoomDetail(building, roomName);
       refreshRailStats();
-      if (classroomCache) loadClassrooms();
+      loadClassrooms();
     });
   });
 
@@ -1645,7 +1645,7 @@ async function openRoomDetail(building, roomName) {
       });
       openRoomDetail(building, roomName);
       refreshRailStats();
-      if (classroomCache) loadClassrooms();
+      loadClassrooms();
     });
   });
 
@@ -1654,7 +1654,8 @@ async function openRoomDetail(building, roomName) {
     openFaultForm(building, roomName, () => {
       openRoomDetail(building, roomName);
       refreshRailStats();
-      if (classroomCache) loadClassrooms();
+      // 教室列表也要刷新：损坏台数变了，列表上的数字必须同步
+      loadClassrooms();
     });
   });
 

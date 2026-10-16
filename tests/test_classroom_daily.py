@@ -138,6 +138,102 @@ class TestClassroom:
         assert classroom.summary()['rooms'] == 0
 
 
+class TestBuildingsWithStats:
+    """
+    两级结构（教学楼 → 教室）必须带上实时统计
+
+    历史缺陷：磁盘上的 classrooms.json 早期存过一个手工填写的 broken 字段，
+    后来改为「损坏台数完全由报修台账推导」，但该字段残留了下来。
+    前端教室列表直接读 b.rooms 的 broken，读到的是陈旧手工值，
+    导致「教室列表」与「教室详情」显示不一致。
+    """
+
+    def test_stats_reflect_repair_log(self, tmp_data):
+        """教室列表里的损坏数必须来自报修台账"""
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 80)
+        repair_log.add_record('A101', '硬件故障', '原因：电源坏',
+                              building='教学楼A', quantity=3)
+
+        data = classroom.buildings_with_stats()
+        room = data['buildings'][0]['rooms'][0]
+        assert room['broken'] == 3
+        assert room['healthy'] == 77
+
+    def test_stale_disk_broken_is_ignored(self, tmp_data):
+        """
+        磁盘上残留的旧 broken 字段不得影响返回值
+
+        这是本次缺陷的核心：不能把磁盘上的手工值透传给前端。
+        """
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 80)
+
+        # 人为写入一个陈旧的 broken（模拟历史遗留数据）
+        data = classroom.load()
+        data['buildings'][0]['rooms'][0]['broken'] = 99
+        classroom.save(data)
+
+        # 台账里实际只有 2 台损坏
+        repair_log.add_record('A101', '故障', '原因：x',
+                              building='教学楼A', quantity=2)
+
+        room = classroom.buildings_with_stats()['buildings'][0]['rooms'][0]
+        assert room['broken'] == 2, '读到了磁盘上的陈旧值，而不是台账统计'
+        assert room['healthy'] == 78
+
+    def test_three_state_fields_present(self, tmp_data):
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 80)
+        repair_log.add_record('A101', '网线松', '原因：x',
+                              status=repair_log.STATUS_SELF_FIX,
+                              building='教学楼A', quantity=2)
+        repair_log.add_record('A101', '电源坏', '原因：y',
+                              status=repair_log.STATUS_PENDING,
+                              building='教学楼A', quantity=1)
+
+        room = classroom.buildings_with_stats()['buildings'][0]['rooms'][0]
+        assert room['self_fix_pcs'] == 2
+        assert room['pending_pcs'] == 1
+        assert room['broken'] == 3
+
+    def test_consistent_with_flat_rooms(self, tmp_data):
+        """两级结构与拍平结构的统计必须一致（两处口径不能分叉）"""
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 80)
+        classroom.add_room('教学楼A', 'A102', 60)
+        repair_log.add_record('A101', '故障', '原因：x',
+                              building='教学楼A', quantity=4)
+
+        nested = {}
+        for b in classroom.buildings_with_stats()['buildings']:
+            for r in b['rooms']:
+                nested[f"{b['name']}|{r['name']}"] = r
+
+        for flat in classroom.flat_rooms():
+            key = f"{flat['building']}|{flat['name']}"
+            assert nested[key]['broken'] == flat['broken'], f'{key} 口径不一致'
+            assert nested[key]['healthy'] == flat['healthy']
+
+    def test_no_broken_key_written_on_update(self, tmp_data):
+        """调用 update_room 时不应把废弃的 broken 字段写回磁盘"""
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 80)
+        classroom.update_room('教学楼A', 'A101', total=90)
+
+        raw = classroom.load()['buildings'][0]['rooms'][0]
+        assert 'broken' not in raw
+        assert raw['total'] == 90
+
+
 class TestDailyTask:
 
     def test_add_task(self, tmp_data):

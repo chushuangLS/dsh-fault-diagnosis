@@ -607,10 +607,15 @@ def api_knowledge():
 
 @app.route('/api/classrooms', methods=['GET'])
 def api_classrooms():
-    """获取全部教室数据（两级结构 + 汇总）"""
-    data = classroom.load()
+    """
+    获取全部教室数据（两级结构 + 汇总）
+
+    注意：buildings 用的是 buildings_with_stats()，而不是磁盘上的原始数据。
+    原始数据里的 broken 是早期手工填写的遗留字段，与报修台账无关；
+    直接用会导致列表页显示陈旧数值，与教室详情页对不上。
+    """
     return jsonify({
-        'buildings': data['buildings'],
+        'buildings': classroom.buildings_with_stats()['buildings'],
         'summary': classroom.summary(),
         'flat': classroom.flat_rooms(),
     })
