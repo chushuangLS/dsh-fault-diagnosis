@@ -21,6 +21,7 @@ from flask import Flask, request, jsonify, render_template, session
 # 确保能导入同目录模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import ai_diagnosis
 from ai_diagnosis import DiagnosisSession
 import repair_log
 import classroom
@@ -194,6 +195,16 @@ def api_chat_stream():
                         payload['record_id'] = rid
                         payload['building'] = getattr(ds, 'building', '') or ''
 
+                    # 诊断完成 → 沉淀进知识库（越用越聪明）
+                    if payload.get('finished'):
+                        try:
+                            ok, msg = ai_diagnosis.save_diagnosis_case(ds)
+                            payload['case_saved'] = ok
+                            payload['case_msg'] = msg
+                        except Exception as e:
+                            payload['case_saved'] = False
+                            payload['case_msg'] = str(e)
+
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                     # 结束后清理会话
@@ -215,15 +226,37 @@ def api_chat_stream():
 
 @app.route('/api/records', methods=['GET'])
 def api_records():
-    """获取报修记录，支持按状态筛选"""
+    """
+    获取报修记录
+
+    参数：
+      status - 按状态筛选（可选）
+      sort   - 排序方式：priority（默认，按状态分级）| time（纯按时间）
+    """
     status = request.args.get('status') or None
+    sort_by = request.args.get('sort') or 'priority'
+
     try:
         records = repair_log.load_records()
+
+        # 分组计数（用于展示"未报修 3 / 已报修 1 / 已解决 5"）
+        counts = {s: 0 for s in repair_log.ALL_STATUS}
+        for r in records:
+            st = r.get('状态', '')
+            if st in counts:
+                counts[st] += 1
+
         if status:
             records = [r for r in records if r['状态'] == status]
-        # 倒序，最新的在前
-        records = list(reversed(records))
-        return jsonify({'records': records, 'statuses': repair_log.ALL_STATUS})
+
+        # 按状态分级：未报修 → 已报修 → 已解决
+        records = repair_log.sort_records(records, by=sort_by)
+
+        return jsonify({
+            'records': records,
+            'statuses': repair_log.ALL_STATUS,
+            'counts': counts,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -239,6 +272,63 @@ def api_update_record(record_id):
     if ok:
         return jsonify({'ok': True, 'message': msg})
     return jsonify({'ok': False, 'message': msg}), 400
+
+
+@app.route('/api/records/<record_id>', methods=['PUT'])
+def api_edit_record(record_id):
+    """
+    修改记录内容（现象 / 结论 / 备注 / 教室）
+
+    请求体：{"symptom": "...", "conclusion": "...", "note": "...",
+             "classroom": "...", "building": "..."}
+    只传需要修改的字段即可。
+    """
+    data = request.get_json(silent=True) or {}
+    ok, msg = repair_log.update_record(record_id, **data)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/records/<record_id>', methods=['DELETE'])
+def api_delete_record(record_id):
+    """删除一条报修记录"""
+    ok, msg = repair_log.delete_record(record_id)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/records/manual', methods=['POST'])
+def api_manual_record():
+    """
+    手动登记一条故障记录
+
+    用于"发现了故障但没走 AI 诊断流程"的情况，
+    让教室的损坏数始终有据可查。
+
+    请求体：{"building": "...", "classroom": "...", "symptom": "...",
+             "conclusion": "...", "status": "未报修"}
+    """
+    d = request.get_json(silent=True) or {}
+    classroom_name = (d.get('classroom') or '').strip()
+    symptom = (d.get('symptom') or '').strip()
+
+    if not classroom_name:
+        return jsonify({'ok': False, 'message': '请指定教室'}), 400
+    if not symptom:
+        return jsonify({'ok': False, 'message': '请填写故障现象'}), 400
+
+    status = d.get('status') or repair_log.STATUS_PENDING
+    if status not in repair_log.ALL_STATUS:
+        status = repair_log.STATUS_PENDING
+
+    rid = repair_log.add_record(
+        classroom=classroom_name,
+        symptom=symptom,
+        conclusion=(d.get('conclusion') or '').strip() or '人工登记，待排查',
+        status=status,
+        note=d.get('note', '') or '',
+        building=(d.get('building') or '').strip(),
+    )
+
+    return jsonify({'ok': True, 'id': rid, 'message': f'已登记 {rid}'})
 
 
 @app.route('/api/statistics', methods=['GET'])
@@ -284,9 +374,51 @@ def api_statistics():
             'top_classrooms': top_classrooms,
             'dates': [d for d, _ in date_sorted],
             'date_counts': [n for _, n in date_sorted],
+            'knowledge': _knowledge_stats(),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _knowledge_stats():
+    """知识库统计（用于展示"越用越聪明"）"""
+    try:
+        import knowledge
+        return knowledge.stats()
+    except Exception:
+        return {'total': 0, 'auto': 0, 'manual': 0, 'by_category': {}}
+
+
+# ============================================================
+# 知识库（检索增强）
+# ============================================================
+
+@app.route('/api/knowledge', methods=['GET'])
+def api_knowledge():
+    """
+    知识库查询
+
+    无参数：返回统计与全部分类
+    ?q=xxx：返回与查询最相似的案例（用于演示检索效果）
+    """
+    q = request.args.get('q', '').strip()
+
+    try:
+        import knowledge
+    except ImportError:
+        return jsonify({'error': '知识库模块不可用'}), 500
+
+    if q:
+        hits = knowledge.search(q, top_n=5, min_score=0)
+        return jsonify({
+            'query': q,
+            'hits': hits,
+            'stats': knowledge.stats(),
+        })
+
+    return jsonify({
+        'stats': knowledge.stats(),
+    })
 
 
 # ============================================================

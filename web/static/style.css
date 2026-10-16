@@ -638,6 +638,77 @@ main { flex: 1; overflow: hidden; position: relative; }
 /* -------- 记录列表 -------- */
 .record-list { display: flex; flex-direction: column; gap: 12px; }
 
+/* -------- 状态统计条 -------- */
+.record-summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.rs-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 17px;
+  flex: 1;
+  min-width: 130px;
+  transition: all 0.24s var(--ease);
+  cursor: pointer;
+}
+.rs-item:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+
+.rs-item.pending  { border-left-color: var(--red); }
+.rs-item.reported { border-left-color: var(--amber); }
+.rs-item.resolved { border-left-color: var(--green); }
+
+.rs-num {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+.rs-item.pending  .rs-num { color: #f87171; }
+.rs-item.reported .rs-num { color: #fbbf24; }
+.rs-item.resolved .rs-num { color: #4ade80; }
+
+.rs-label { font-size: 13px; color: var(--text-dim); }
+
+/* -------- 状态分组标题 -------- */
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 4px 6px;
+}
+.group-head:first-child { padding-top: 0; }
+
+.gh-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.group-head.未报修 .gh-dot { background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,0.6); }
+.group-head.已报修 .gh-dot { background: var(--amber); box-shadow: 0 0 10px rgba(245,158,11,0.6); }
+.group-head.已解决 .gh-dot { background: var(--green); box-shadow: 0 0 10px rgba(34,197,94,0.6); }
+
+.gh-text {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.group-head.未报修 .gh-text { color: #f87171; }
+.group-head.已报修 .gh-text { color: #fbbf24; }
+.group-head.已解决 .gh-text { color: #4ade80; }
+
+.gh-desc {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .record {
   background: var(--panel);
   backdrop-filter: blur(12px);
@@ -667,6 +738,30 @@ main { flex: 1; overflow: hidden; position: relative; }
   padding: 2px 11px;
   border-radius: 7px;
   font-size: 13px;
+}
+
+/* 教室未关联教学楼时给出提示 */
+.record-classroom.warn {
+  background: rgba(245,158,11,0.12);
+  color: #fbbf24;
+}
+.record-classroom .no-building {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(245,158,11,0.35);
+}
+
+.record-actions button.edit-btn:hover {
+  color: #93c5fd;
+  border-color: rgba(59,130,246,0.4);
+  background: var(--accent-soft);
+}
+.record-actions button.del-btn:hover {
+  color: #f87171;
+  border-color: rgba(239,68,68,0.35);
+  background: rgba(239,68,68,0.1);
 }
 .record-time { color: var(--text-faint); font-size: 12px; margin-left: auto; }
 
@@ -1601,6 +1696,28 @@ main { flex: 1; overflow: hidden; position: relative; }
 
 .cause-list { display: flex; flex-direction: column; gap: 10px; }
 
+.cause-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 11px;
+}
+.cause-head h5 { margin-bottom: 0; }
+
+/* 已解决的记录淡化 */
+.cause-item.resolved {
+  border-left-color: var(--green);
+  background: rgba(34,197,94,0.05);
+  opacity: 0.78;
+}
+.cause-item.resolved .cause-text { color: var(--text-faint); }
+
+.cause-actions button.del-btn:hover {
+  color: #f87171;
+  border-color: rgba(239,68,68,0.35);
+  background: rgba(239,68,68,0.1);
+}
+
 .cause-item {
   background: rgba(255,255,255,0.032);
   border: 1px solid var(--border);
@@ -1657,6 +1774,18 @@ main { flex: 1; overflow: hidden; position: relative; }
   background: rgba(34,197,94,0.05);
   border: 1px solid rgba(34,197,94,0.18);
   border-radius: 10px;
+}
+
+/* 知识库沉淀提示 */
+.kb-note {
+  margin-top: 10px;
+  padding: 9px 13px;
+  background: rgba(139,92,246,0.1);
+  border: 1px solid rgba(139,92,246,0.3);
+  border-radius: 9px;
+  font-size: 13px;
+  color: #c4b5fd;
+  line-height: 1.6;
 }
 
 /* ============================================================

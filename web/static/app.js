@@ -413,6 +413,14 @@ async function sendMessage() {
             loadRecentRecords();
           }
 
+          // 知识库沉淀提示（体现"越用越聪明"）
+          if (evt.finished && evt.case_saved) {
+            const note = document.createElement('div');
+            note.className = 'kb-note';
+            note.textContent = `📚 本次诊断已沉淀为新案例，知识库可以复用这个经验了`;
+            body.parentNode.appendChild(note);
+          }
+
           // 更新抽屉状态
           sessionRounds++;
           if (evt.classroom) currentClassroom = evt.classroom;
@@ -514,6 +522,122 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+/**
+ * 编辑报修记录
+ *
+ * 用自定义弹窗而不是 prompt()，因为教室需要「教学楼 + 教室」两个下拉，
+ * 这样能统一历史上格式不规范的记录。
+ */
+async function editRecordDialog(rec) {
+  // 读取教室台账，供下拉使用
+  let buildings = [];
+  try {
+    const res = await fetch('/api/classrooms');
+    buildings = (await res.json()).buildings || [];
+  } catch { /* 忽略 */ }
+
+  const bSel = buildings.map(b =>
+    `<option value="${escapeHtml(b.name)}"${b.name === rec['教学楼'] ? ' selected' : ''}>${escapeHtml(b.name)}</option>`
+  ).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-mask';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px">
+      <div class="modal-head">
+        <h3>编辑记录 ${escapeHtml(rec['记录编号'])}</h3>
+        <button class="modal-close" id="er-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tf-grid">
+          <div class="tf-field">
+            <label>教学楼</label>
+            <select id="er-building">
+              <option value="">（不指定）</option>
+              ${bSel}
+            </select>
+          </div>
+          <div class="tf-field">
+            <label>教室</label>
+            <select id="er-room">
+              <option value="">请先选教学楼</option>
+            </select>
+          </div>
+          <div class="tf-field tf-wide">
+            <label>故障现象</label>
+            <input type="text" id="er-symptom" value="${escapeHtml(rec['故障现象'] || '')}">
+          </div>
+          <div class="tf-field tf-wide">
+            <label>诊断结论</label>
+            <textarea id="er-conclusion" rows="4"
+              style="background:rgba(255,255,255,0.04);border:1px solid var(--border);
+                     border-radius:9px;padding:9px 12px;color:var(--text);
+                     font-family:inherit;font-size:13.5px;outline:none;resize:vertical"
+            >${escapeHtml(rec['诊断结论'] || '')}</textarea>
+          </div>
+          <div class="tf-field tf-wide">
+            <label>备注</label>
+            <input type="text" id="er-note" value="${escapeHtml(rec['备注'] || '')}">
+          </div>
+        </div>
+        <div class="tf-actions">
+          <button class="btn-primary btn-sm" id="er-save">保存</button>
+          <button class="btn-ghost" id="er-cancel">取消</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const rSel = overlay.querySelector('#er-room');
+  const bEl = overlay.querySelector('#er-building');
+
+  // 填充教室下拉
+  function fillRooms(keepValue) {
+    const b = buildings.find(x => x.name === bEl.value);
+    if (!b || !b.rooms.length) {
+      rSel.innerHTML = '<option value="">（该楼暂无教室）</option>';
+      return;
+    }
+    rSel.innerHTML = '<option value="">请选择</option>' +
+      b.rooms.map(r =>
+        `<option value="${escapeHtml(r.name)}"${r.name === keepValue ? ' selected' : ''}>${escapeHtml(r.name)}</option>`
+      ).join('');
+  }
+
+  fillRooms(rec['教室']);
+
+  bEl.addEventListener('change', () => fillRooms(''));
+
+  function close() { overlay.remove(); }
+
+  overlay.querySelector('#er-close').addEventListener('click', close);
+  overlay.querySelector('#er-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#er-save').addEventListener('click', async () => {
+    const payload = {
+      building: bEl.value,
+      classroom: rSel.value,
+      symptom: overlay.querySelector('#er-symptom').value,
+      conclusion: overlay.querySelector('#er-conclusion').value,
+      note: overlay.querySelector('#er-note').value,
+    };
+
+    if (!payload.classroom) { alert('请选择教室'); return; }
+
+    const res = await fetch('/api/records/' + encodeURIComponent(rec['记录编号']), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await res.json();
+    if (!d.ok) { alert(d.message); return; }
+    close();
+  });
+}
+
 async function loadRecords() {
   const list = $('#record-list');
   list.innerHTML = '<div class="empty">加载中…</div>';
@@ -528,6 +652,35 @@ async function loadRecords() {
       return;
     }
 
+    // 状态统计条（点击可快速筛选）
+    const c = data.counts || {};
+    $('#record-summary').innerHTML = `
+      <div class="rs-item pending" data-jump="">
+        <span class="rs-num">${c['未报修'] || 0}</span>
+        <span class="rs-label">未报修（待处理）</span>
+      </div>
+      <div class="rs-item reported" data-jump="已报修">
+        <span class="rs-num">${c['已报修'] || 0}</span>
+        <span class="rs-label">已报修（等维修）</span>
+      </div>
+      <div class="rs-item resolved" data-jump="已解决">
+        <span class="rs-num">${c['已解决'] || 0}</span>
+        <span class="rs-label">已解决</span>
+      </div>
+    `;
+
+    // 点击统计卡片 → 筛选对应状态
+    document.querySelectorAll('#record-summary .rs-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const st = item.dataset.jump;
+        currentStatus = st;
+        document.querySelectorAll('.chip[data-status]').forEach(ch => {
+          ch.classList.toggle('active', ch.dataset.status === st);
+        });
+        loadRecords();
+      });
+    });
+
     if (!data.records.length) {
       list.innerHTML = `<div class="empty"><span class="icon">📋</span>暂无${
         currentStatus ? '「' + escapeHtml(currentStatus) + '」状态的' : ''
@@ -536,15 +689,49 @@ async function loadRecords() {
     }
 
     list.innerHTML = '';
+
+    // 状态分组标题的文案与说明
+    const GROUP_META = {
+      '未报修': { text: '待处理', desc: '还没联系维修，需要尽快跟进' },
+      '已报修': { text: '等维修', desc: '已报修，等待处理结果' },
+      '已解决': { text: '已完成', desc: '故障已修复' },
+    };
+
+    let lastStatus = null;
+
     data.records.forEach(r => {
+      // 状态切换时插入分组标题
+      if (r['状态'] !== lastStatus) {
+        lastStatus = r['状态'];
+        const meta = GROUP_META[r['状态']] || { text: r['状态'], desc: '' };
+        const head = document.createElement('div');
+        head.className = `group-head ${escapeHtml(r['状态'])}`;
+        head.innerHTML = `
+          <span class="gh-dot"></span>
+          <span class="gh-text">${escapeHtml(meta.text)}</span>
+          <span class="gh-desc">${escapeHtml(meta.desc)}</span>
+        `;
+        list.appendChild(head);
+      }
+
       const el = document.createElement('div');
       el.className = 'record';
+
+      // 教室显示规范化：有教学楼 → "A栋 · 101"；没有 → 标注"未关联教学楼"
+      let roomHtml;
+      if (r['教学楼']) {
+        roomHtml = `<span class="record-classroom">${escapeHtml(r['教学楼'])} · ${escapeHtml(r['教室'])}</span>`;
+      } else if (r['教室'] && r['教室'] !== '未填写') {
+        roomHtml = `<span class="record-classroom warn">${escapeHtml(r['教室'])}
+          <span class="no-building">未关联教学楼</span></span>`;
+      } else {
+        roomHtml = `<span class="record-classroom warn">教室未填写</span>`;
+      }
+
       el.innerHTML = `
         <div class="record-head">
           <span class="record-id">${escapeHtml(r['记录编号'])}</span>
-          <span class="record-classroom">${r['教学楼']
-            ? escapeHtml(r['教学楼']) + ' · ' + escapeHtml(r['教室'])
-            : '教室 ' + escapeHtml(r['教室'])}</span>
+          ${roomHtml}
           <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
           <span class="record-time">${escapeHtml(r['时间'])}</span>
         </div>
@@ -557,13 +744,15 @@ async function loadRecords() {
           <button data-id="${escapeHtml(r['记录编号'])}" data-status="已报修">标记已报修</button>
           <button data-id="${escapeHtml(r['记录编号'])}" data-status="已解决">标记已解决</button>
           <button data-id="${escapeHtml(r['记录编号'])}" data-status="未报修">重置为未报修</button>
+          <button class="edit-btn" data-edit="${escapeHtml(r['记录编号'])}">编辑</button>
+          <button class="del-btn" data-del="${escapeHtml(r['记录编号'])}">删除</button>
         </div>
       `;
       list.appendChild(el);
     });
 
-    // 绑定按钮
-    list.querySelectorAll('.record-actions button').forEach(btn => {
+    // 绑定状态按钮
+    list.querySelectorAll('.record-actions button[data-status]').forEach(btn => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         try {
@@ -578,6 +767,28 @@ async function loadRecords() {
           alert('更新失败：' + e.message);
         }
         loadRecords();
+      });
+    });
+
+    // 编辑
+    list.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const rid = btn.dataset.edit;
+        const rec = data.records.find(x => x['记录编号'] === rid);
+        if (!rec) return;
+        await editRecordDialog(rec);
+        loadRecords();
+      });
+    });
+
+    // 删除
+    list.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const rid = btn.dataset.del;
+        if (!confirm(`确定删除记录 ${rid}？此操作不可撤销。`)) return;
+        await fetch('/api/records/' + encodeURIComponent(rid), { method: 'DELETE' });
+        loadRecords();
+        refreshDrawerStats();
       });
     });
 
@@ -946,45 +1157,62 @@ async function openRoomDetail(building, roomName) {
   const total = info.total || 0;
   const broken = info.broken || 0;
   const healthy = Math.max(total - broken, 0);
+  const manual = info.manual_broken || 0;   // 手动登记的
+  const auto = info.auto_broken || 0;       // 报修台账统计的
   const c = d.counts;
 
-  // 损坏原因列表（未解决的记录）
-  const unresolved = d.records.filter(r => r['状态'] !== '已解决');
-  const causeHtml = unresolved.length
-    ? unresolved.map(r => `
-        <div class="cause-item">
+  // 故障明细（含已解决的，方便编辑）
+  const causeHtml = d.records.length
+    ? d.records.map(r => {
+        const done = r['状态'] === '已解决';
+        return `
+        <div class="cause-item ${done ? 'resolved' : ''}">
           <div class="cause-top">
             <span class="cause-id">${escapeHtml(r['记录编号'])}</span>
             <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
             <span class="cause-time">${escapeHtml(r['时间'])}</span>
           </div>
-          <div class="cause-text">${escapeHtml(r['诊断结论'] || r['故障现象']).replace(/\n/g, '<br>')}</div>
-          <div class="cause-actions">
-            <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
-            <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">标记已解决</button>
+          <div class="cause-text">
+            <b style="color:var(--text-dim)">现象：</b>${escapeHtml(r['故障现象'])}<br>
+            <b style="color:var(--text-dim)">结论：</b>${escapeHtml(r['诊断结论'] || '—').replace(/\n/g, '<br>')}
+            ${r['备注'] ? `<br><b style="color:var(--text-dim)">备注：</b>${escapeHtml(r['备注'])}` : ''}
           </div>
-        </div>
-      `).join('')
-    : '<div class="cause-empty">该教室当前没有未解决的故障 ✅</div>';
+          <div class="cause-actions">
+            ${done
+              ? `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="未报修">↩ 恢复未报修</button>`
+              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
+                 <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">✓ 标记已解决</button>`}
+            <button data-edit-record="${escapeHtml(r['记录编号'])}">编辑</button>
+            <button class="del-btn" data-del-record="${escapeHtml(r['记录编号'])}">删除</button>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="cause-empty">该教室当前没有故障记录</div>';
 
   $('#room-detail').innerHTML = `
     <h4>${escapeHtml(building)} · ${escapeHtml(roomName)}</h4>
-    <div class="sub-line">损坏数量由报修台账自动统计</div>
+    <div class="sub-line">损坏总数 = 手动登记 ${manual} 台 + 报修台账 ${auto} 台</div>
 
     <div class="detail-stats">
       <div class="detail-stat tot"><div class="dv">${total}</div><div class="dl">电脑总数</div></div>
       <div class="detail-stat ok"><div class="dv">${healthy}</div><div class="dl">正常</div></div>
-      <div class="detail-stat bad"><div class="dv">${broken}</div><div class="dl">损坏（未解决）</div></div>
+      <div class="detail-stat bad"><div class="dv">${broken}</div><div class="dl">损坏合计</div></div>
     </div>
 
     <div id="room-chart"></div>
 
     <div class="cause-section">
-      <h5>损坏与故障明细</h5>
+      <div class="cause-head">
+        <h5>损坏与故障明细</h5>
+        <button class="btn-primary btn-sm" id="add-record">＋ 登记故障</button>
+      </div>
       <div class="cause-summary">
         <span>未报修 <b>${c.pending}</b></span>
         <span>已报修 <b>${c.reported}</b></span>
         <span>已解决 <b>${c.resolved}</b></span>
+        <span style="margin-left:auto;color:var(--text-faint)">
+          手动登记 <b>${manual}</b> 台｜台账 <b>${auto}</b> 台
+        </span>
       </div>
       <div class="cause-list">${causeHtml}</div>
     </div>
@@ -995,9 +1223,8 @@ async function openRoomDetail(building, roomName) {
         <input type="number" id="edit-total" value="${total}" min="0">
       </div>
       <div class="edit-field">
-        <label>损坏数量（自动统计，不可改）</label>
-        <input type="number" value="${broken}" disabled
-               style="opacity:0.6;cursor:not-allowed">
+        <label>手动登记损坏数</label>
+        <input type="number" id="edit-broken" value="${manual}" min="0">
       </div>
       <div class="edit-field" style="grid-column:1/-1">
         <label>备注</label>
@@ -1046,7 +1273,66 @@ async function openRoomDetail(building, roomName) {
     });
   });
 
-  // 保存（只改总数与备注）
+  // 编辑某条故障记录
+  document.querySelectorAll('[data-edit-record]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const rid = btn.dataset.editRecord;
+      const rec = d.records.find(x => x['记录编号'] === rid);
+      if (!rec) return;
+
+      const symptom = prompt('故障现象：', rec['故障现象'] || '');
+      if (symptom === null) return;
+      const conclusion = prompt('诊断结论：', rec['诊断结论'] || '');
+      if (conclusion === null) return;
+      const note = prompt('备注：', rec['备注'] || '');
+      if (note === null) return;
+
+      await fetch('/api/records/' + encodeURIComponent(rid), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symptom, conclusion, note }),
+      });
+      openRoomDetail(building, roomName);
+      refreshDrawerStats();
+    });
+  });
+
+  // 删除某条故障记录
+  document.querySelectorAll('[data-del-record]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`确定删除记录 ${btn.dataset.delRecord}？`)) return;
+      await fetch('/api/records/' + encodeURIComponent(btn.dataset.delRecord), {
+        method: 'DELETE',
+      });
+      openRoomDetail(building, roomName);
+      refreshDrawerStats();
+      if (classroomCache) loadClassrooms();
+    });
+  });
+
+  // 手动登记一条故障
+  $('#add-record').addEventListener('click', async () => {
+    const symptom = prompt('故障现象（如：第 5 台电脑无法开机）：');
+    if (!symptom) return;
+    const conclusion = prompt('诊断结论 / 原因（可留空）：', '人工登记，待排查') || '人工登记，待排查';
+
+    const res2 = await fetch('/api/records/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        building, classroom: roomName,
+        symptom, conclusion,
+        status: '未报修',
+      }),
+    });
+    const d2 = await res2.json();
+    if (!d2.ok) { alert(d2.message); return; }
+    openRoomDetail(building, roomName);
+    refreshDrawerStats();
+    if (classroomCache) loadClassrooms();
+  });
+
+  // 保存（总数 / 手动登记损坏数 / 备注）
   $('#save-room').addEventListener('click', async () => {
     const res2 = await fetch('/api/classrooms/room', {
       method: 'PUT',
@@ -1055,6 +1341,7 @@ async function openRoomDetail(building, roomName) {
         building,
         name: roomName,
         total: $('#edit-total').value,
+        broken: $('#edit-broken').value,
         note: $('#edit-note').value,
       }),
     });
