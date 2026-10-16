@@ -1698,6 +1698,27 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .fault-form-table .ff-qty-cell input { text-align: center; }
 
+/* -------- 下拉选项的深色背景 --------
+   浏览器默认给 <option> 白底黑字，在本站的深色主题下会出现
+   「浅灰文字 + 白底」而看不清。这里统一改成深色底、浅色字。
+
+   注意：不同平台对 option 的渲染支持不同 ——
+   Chrome/Edge 能生效，部分系统（如 macOS 原生、某些 Linux 主题）
+   会忽略自定义样式而使用系统菜单，这属于平台限制。
+   因此下拉控件本身的文字要保持足够对比度。 */
+select option,
+select optgroup {
+  background-color: #1a2129;
+  color: var(--text);
+}
+
+/* 选中项用主题蓝，避免系统默认的浅灰高亮 */
+select option:checked,
+select option:hover {
+  background-color: #2a3a4d;
+  color: #dbeafe;
+}
+
 .ff-del {
   background: transparent;
   border: none;
