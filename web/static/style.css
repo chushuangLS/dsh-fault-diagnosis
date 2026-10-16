@@ -750,24 +750,49 @@ main { flex: 1; overflow: hidden; position: relative; }
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
-.record-id { font-weight: 600; color: #93c5fd; font-size: 14px; }
+
+/* 位置标题：用「教学楼 · 教室」代替记录编号，作为清单的主标识 */
 .record-classroom {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   background: rgba(255,255,255,0.06);
-  padding: 2px 11px;
-  border-radius: 7px;
-  font-size: 13px;
+  border: 1px solid var(--border);
+  padding: 3px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.record-classroom .rc-building {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.record-classroom .rc-sep { color: var(--text-faint); }
+.record-classroom .rc-room {
+  color: #93c5fd;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+/* 教室详情里的故障条目：以数量代替编号作主标识 */
+.cause-qty {
+  font-weight: 600;
+  color: #93c5fd;
+  font-size: 14px;
 }
 
 /* 教室未关联教学楼时给出提示 */
 .record-classroom.warn {
   background: rgba(245,158,11,0.12);
-  color: #fbbf24;
+  border-color: rgba(245,158,11,0.3);
 }
+.record-classroom.warn .rc-room { color: #fbbf24; }
 .record-classroom .no-building {
   font-size: 11px;
   opacity: 0.75;
   margin-left: 6px;
   padding-left: 6px;
+  color: #fbbf24;
   border-left: 1px solid rgba(245,158,11,0.35);
 }
 
@@ -1043,10 +1068,32 @@ main { flex: 1; overflow: hidden; position: relative; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   margin-bottom: 3px;
 }
-.recent-item .ri-id { color: #93c5fd; font-weight: 600; }
-.recent-item .ri-room { color: var(--text-dim); }
+/* 位置代替编号作为主标识 */
+.recent-item .ri-where {
+  color: #93c5fd;
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-item .ri-qty {
+  font-size: 11px;
+  color: #93c5fd;
+  background: rgba(59,130,246,0.16);
+  border: 1px solid rgba(59,130,246,0.3);
+  border-radius: 100px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+.recent-item .ri-status {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
 .recent-item .ri-sym {
   color: var(--text-faint);
   font-size: 12px;
@@ -1055,6 +1102,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   white-space: nowrap;
 }
 .recent-item.pending  { border-left-color: var(--red); }
+.recent-item.selffix  { border-left-color: #eab308; }
 .recent-item.reported { border-left-color: var(--amber); }
 .recent-item.resolved { border-left-color: var(--green); }
 

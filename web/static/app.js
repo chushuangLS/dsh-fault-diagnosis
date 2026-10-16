@@ -167,16 +167,32 @@ async function loadRecentRecords() {
       return;
     }
 
-    const statusClass = { '未报修': 'pending', '已报修': 'reported', '已解决': 'resolved' };
-    box.innerHTML = data.records.slice(0, 5).map(r => `
+    const statusClass = { '未报修': 'pending', '待自修': 'selffix',
+                          '已报修': 'reported', '已解决': 'resolved' };
+
+    // 用「教学楼 · 教室」代替记录编号；缺教学楼时只显示教室号
+    const where = (r) => {
+      const b = (r['教学楼'] || '').trim();
+      const room = (r['教室'] || '').trim();
+      if (b && b !== '未标注教学楼' && room && room !== '未填写') {
+        return `${b} · ${room}`;
+      }
+      if (room && room !== '未填写') return room;
+      return '教室未填写';
+    };
+
+    box.innerHTML = data.records.slice(0, 5).map(r => {
+      const qty = parseInt(r['数量'], 10) || 1;
+      return `
       <div class="recent-item ${statusClass[r['状态']] || ''}">
         <div class="ri-top">
-          <span class="ri-id">${escapeHtml(r['记录编号'])}</span>
-          <span class="ri-room">${escapeHtml(r['教室'])}</span>
+          <span class="ri-where">${escapeHtml(where(r))}</span>
+          ${qty > 1 ? `<span class="ri-qty">${qty} 台</span>` : ''}
+          <span class="ri-status">${escapeHtml(r['状态'])}</span>
         </div>
         <div class="ri-sym">${escapeHtml(r['故障现象'])}</div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch {
     box.innerHTML = '<div class="recent-empty">读取失败</div>';
   }
@@ -777,21 +793,34 @@ async function loadRecords() {
       const el = document.createElement('div');
       el.className = 'record';
 
-      // 教室显示规范化：有教学楼 → "A栋 · 101"；没有 → 标注"未关联教学楼"
+      // 位置显示：用「教学楼 · 教室」代替记录编号作为标题
+      // 教室是运维人员最关心的信息，编号对使用者没有意义（仅在内部用于接口调用）
       let roomHtml;
-      if (r['教学楼']) {
-        roomHtml = `<span class="record-classroom">${escapeHtml(r['教学楼'])} · ${escapeHtml(r['教室'])}</span>`;
+      if (r['教学楼'] && r['教学楼'] !== '未标注教学楼') {
+        roomHtml = `<span class="record-classroom">
+            <span class="rc-building">${escapeHtml(r['教学楼'])}</span>
+            <span class="rc-sep">·</span>
+            <span class="rc-room">${escapeHtml(r['教室'])}</span>
+          </span>`;
       } else if (r['教室'] && r['教室'] !== '未填写') {
-        roomHtml = `<span class="record-classroom warn">${escapeHtml(r['教室'])}
-          <span class="no-building">未关联教学楼</span></span>`;
+        roomHtml = `<span class="record-classroom">
+            <span class="rc-room">${escapeHtml(r['教室'])}</span>
+            <span class="no-building">未关联教学楼</span>
+          </span>`;
       } else {
-        roomHtml = `<span class="record-classroom warn">教室未填写</span>`;
+        roomHtml = `<span class="record-classroom warn">
+            <span class="rc-room">教室未填写</span>
+          </span>`;
       }
+
+      // 数量标签（一条记录可能代表多台设备）
+      const qty = parseInt(r['数量'], 10) || 1;
+      const qtyHtml = qty > 1 ? `<span class="qty-tag">${qty} 台</span>` : '';
 
       el.innerHTML = `
         <div class="record-head">
-          <span class="record-id">${escapeHtml(r['记录编号'])}</span>
           ${roomHtml}
+          ${qtyHtml}
           <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
           <span class="record-time">${escapeHtml(r['时间'])}</span>
         </div>
@@ -1447,9 +1476,8 @@ async function openRoomDetail(building, roomName) {
         return `
         <div class="cause-item ${done ? 'resolved' : ''}">
           <div class="cause-top">
-            <span class="cause-id">${escapeHtml(r['记录编号'])}</span>
+            <span class="cause-qty">${qty} 台</span>
             <span class="badge ${STATUS_CLASS[st] || 'pending'}">${escapeHtml(st)}</span>
-            ${qty > 1 ? `<span class="qty-tag">${qty} 台</span>` : ''}
             <span class="cause-time">${escapeHtml(r['时间'])}</span>
           </div>
           <div class="cause-text">
