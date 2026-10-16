@@ -17,7 +17,8 @@ from datetime import datetime
 RECORD_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'repair_records.csv')
 
 # 表头
-FIELDS = ['记录编号', '时间', '教室', '故障现象', '诊断结论', '状态', '备注']
+# 说明：教学楼 列是后加的，旧记录的该列可能为空，读取时做兼容处理
+FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊断结论', '状态', '备注']
 
 # 状态常量
 STATUS_PENDING = '未报修'
@@ -28,18 +29,54 @@ ALL_STATUS = [STATUS_PENDING, STATUS_REPORTED, STATUS_RESOLVED]
 
 
 def init_file():
-    """如果记录文件不存在，创建并写入表头"""
+    """
+    如果记录文件不存在，创建并写入表头。
+
+    如果文件已存在但表头是旧版本（缺少新增的列），
+    则自动迁移：把旧表头替换为新表头，旧记录补空值。
+    """
     if not os.path.exists(RECORD_FILE):
         with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(FIELDS)
+            csv.writer(f).writerow(FIELDS)
+        return
+
+    # 检查表头是否需要迁移
+    try:
+        with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
+            rows = list(csv.reader(f))
+    except Exception:
+        return
+
+    if not rows:
+        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+            csv.writer(f).writerow(FIELDS)
+        return
+
+    header = rows[0]
+    if header == FIELDS:
+        return  # 已是最新，无需处理
+
+    # 按旧表头重建：逐列映射到新字段，缺失的补空
+    migrated = [FIELDS]
+    for old_row in rows[1:]:
+        mapping = dict(zip(header, old_row))
+        migrated.append([mapping.get(field, '') for field in FIELDS])
+
+    with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+        csv.writer(f).writerows(migrated)
 
 
 def load_records():
-    """读取所有记录"""
+    """读取所有记录（兼容缺少「教学楼」列的旧文件）"""
     init_file()
     with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+
+    # 兼容处理：补齐可能缺失的列
+    for r in rows:
+        for field in FIELDS:
+            r.setdefault(field, '')
+    return rows
 
 
 def next_id():
@@ -56,16 +93,17 @@ def next_id():
     return f'R{num:03d}'
 
 
-def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note=''):
+def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note='', building=''):
     """
     新增一条报修记录
 
     参数：
-      classroom  - 教室号，如 "107"
+      classroom  - 教室号，如 "A101"
       symptom    - 故障现象
       conclusion - 诊断结论
       status     - 状态，默认"未报修"
       note       - 备注
+      building   - 教学楼名称，如 "教学楼A"（可选）
 
     返回：记录编号
     """
@@ -77,6 +115,7 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note=''):
         writer.writerow([
             record_id,
             datetime.now().strftime('%Y-%m-%d %H:%M'),
+            building or '',
             classroom,
             symptom,
             conclusion,
