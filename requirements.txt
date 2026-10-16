@@ -1,0 +1,12 @@
+# 机房故障智能诊断助手 - 依赖清单
+#
+# 安装：
+#   pip install -r requirements.txt
+#
+# 说明：本项目只依赖这两个库，无需数据库或前端构建工具。
+
+# 大模型调用（DeepSeek 兼容 OpenAI 接口）
+openai>=1.0.0
+
+# Web 版后端（命令行走 main.py 时不需要，跑 src/app.py 时必须）
+flask>=3.0.0
