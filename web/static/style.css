@@ -635,6 +635,24 @@ main { flex: 1; overflow: hidden; position: relative; }
   box-shadow: 0 0 16px -6px var(--accent-glow);
 }
 
+/* 导出按钮：与筛选 chip 区分开，做成主色实心 */
+.chip-export {
+  margin-left: 6px;
+  border-color: rgba(59,130,246,0.45);
+  color: #93c5fd;
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+.chip-export:hover {
+  color: #dbeafe;
+  border-color: rgba(59,130,246,0.75);
+  box-shadow: 0 0 16px -6px var(--accent-glow);
+}
+.chip-export:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 /* -------- 记录列表 -------- */
 .record-list { display: flex; flex-direction: column; gap: 12px; }
 

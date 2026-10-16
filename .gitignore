@@ -49,6 +49,9 @@ data/daily_tasks.json
 data/fault_cases_auto.json
 data/fault_cases_auto.json.lock
 
+# 导出的报表（运行时产物，含真实教室与故障信息）
+exports/
+
 # 测试与缓存
 .pytest_cache/
 .coverage

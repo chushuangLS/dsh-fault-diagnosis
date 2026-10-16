@@ -379,6 +379,35 @@ def api_manual_record():
     return jsonify({'ok': True, 'id': rid, 'message': f'已登记 {rid}'})
 
 
+@app.route('/api/export/repair', methods=['GET'])
+def api_export_repair():
+    """
+    导出报修记录为 Excel
+
+    返回 .xlsx 文件流，浏览器直接下载。
+    报表结构见 excel_export 模块的说明。
+    """
+    try:
+        import excel_export
+        filename, data = excel_export.export_to_bytes()
+    except ImportError:
+        return jsonify({'error': '导出功能不可用：缺少 openpyxl，请执行 '
+                                 'pip install -r requirements.txt'}), 500
+    except Exception as e:
+        return jsonify({'error': f'导出失败：{e}'}), 500
+
+    from urllib.parse import quote
+
+    # 文件名含中文，需要按 RFC 5987 编码，否则部分浏览器会乱码
+    disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+
+    return app.response_class(
+        data,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': disposition},
+    )
+
+
 @app.route('/api/statistics', methods=['GET'])
 def api_statistics():
     """统计数据（用于数据看板）"""

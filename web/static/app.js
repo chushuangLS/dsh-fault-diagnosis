@@ -508,6 +508,9 @@ $('#reset').addEventListener('click', resetSession);
 let currentStatus = '';
 
 document.querySelectorAll('.chip').forEach(chip => {
+  // 导出按钮不是筛选条件，跳过（它有自己的处理逻辑）
+  if (chip.dataset.export) return;
+
   chip.addEventListener('click', () => {
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
@@ -515,6 +518,63 @@ document.querySelectorAll('.chip').forEach(chip => {
     loadRecords();
   });
 });
+
+/**
+ * 导出报修记录为 Excel
+ *
+ * 后端返回的是文件流，这里用一次性的 <a download> 触发浏览器下载。
+ * 之所以不直接用 window.open：某些浏览器会拦截弹窗。
+ */
+(function bindExport() {
+  const btn = document.getElementById('btn-export-repair');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在生成…';
+
+    try {
+      const res = await fetch('/api/export/repair');
+
+      if (!res.ok) {
+        // 出错时后端返回 JSON，取出其中的 error 提示
+        let msg = `导出失败（HTTP ${res.status}）`;
+        try {
+          const j = await res.json();
+          if (j.error) msg = j.error;
+        } catch (e) { /* 非 JSON，用默认提示 */ }
+        alert(msg);
+        return;
+      }
+
+      // 优先用后端给的文件名（含时间戳）
+      let filename = '机房故障报表.xlsx';
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+      if (m) {
+        try { filename = decodeURIComponent(m[1]); } catch (e) { /* 保留默认名 */ }
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 释放对象 URL，避免内存泄漏
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    } catch (e) {
+      alert('导出失败：' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+})();
 
 function escapeHtml(s) {
   const d = document.createElement('div');

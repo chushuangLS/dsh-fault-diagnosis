@@ -76,3 +76,18 @@ def seeded_knowledge(tmp_data):
         json.dump({'version': '0.1.0', 'description': '测试知识库', 'cases': cases},
                   f, ensure_ascii=False, indent=2)
     return cases
+
+
+@pytest.fixture
+def seeded_rooms(tmp_data):
+    """
+    预置一个空的教室台账文件
+
+    名称保留为 seeded_rooms 是因为导出测试会在这个基础上继续加教室；
+    这里先建好合法结构，避免文件不存在导致读取回退。
+    """
+    import classroom
+
+    with open(classroom.DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'buildings': []}, f, ensure_ascii=False, indent=2)
+    return classroom.DATA_FILE

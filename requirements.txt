@@ -10,3 +10,6 @@ openai>=1.0.0
 
 # Web 版后端（命令行走 main.py 时不需要，跑 src/app.py 时必须）
 flask>=3.0.0
+
+# 报修记录导出 Excel
+openpyxl>=3.1.0
