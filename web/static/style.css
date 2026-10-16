@@ -575,11 +575,15 @@ button:disabled { cursor: not-allowed; }
 /* 拖动中：关掉过渡，否则跟手会"发飘" */
 .rail.dragging {
   transition: none;
+  cursor: grabbing;
   box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.85),
               0 0 0 1px rgba(59, 130, 246, 0.28);
 }
+/* 拖动中禁止选中文字，否则会拖出一片蓝色选区 */
+.rail.dragging * { user-select: none; }
 
-/* 品牌区是拖动手柄 */
+/* 栏内任意位置都可长按拖动（短按仍是正常点击按钮） */
+.rail { cursor: default; }
 .rail-brand { cursor: grab; }
 .rail-brand:active { cursor: grabbing; }
 
@@ -592,7 +596,7 @@ button:disabled { cursor: not-allowed; }
   flex-shrink: 0;
 }
 .rail.expanded .rail-grip { opacity: 0.5; }
-.rail-brand:hover .rail-grip { opacity: 0.9; }
+.rail:hover .rail-grip { opacity: 0.9; }
 
 /* 被拖动过：用边框提示"位置已改"，并给出恢复方式 */
 .rail.moved { border-color: rgba(59, 130, 246, 0.32); }

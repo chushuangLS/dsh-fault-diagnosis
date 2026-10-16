@@ -118,14 +118,27 @@ railEl.addEventListener('focusin', expandRail);
 railEl.addEventListener('focusout', scheduleCollapseRail);
 
 /* ============================================================
-   侧边栏拖拽（长按品牌区拖动）
+   侧边栏拖拽（长按栏内任意位置拖动）
+
+   交互约定：
+     短按（< 180ms 且几乎没动） → 正常点击按钮
+     长按（≥ 180ms）           → 进入拖动，跟随鼠标移动
+     双击                       → 恢复默认位置（右侧居中）
 
    为什么用长按而不是直接拖：
-     侧边栏里全是按钮，直接拖会在点击时误触发位移。
+     栏里全是按钮，直接拖会在每次点击时误触发位移。
 
-   为什么拖动的是 left/top 而不是 right/top：
-     一旦用户把栏拖到屏幕中间，"距右边缘的距离"就没有意义了。
-     统一改成以左上角定位，拖拽和恢复都用同一套坐标。
+   怎么做到"长按拖动"与"短按点击"互不干扰：
+     · 在 pointerdown 时启动计时器，未到时间前不拦截任何事件，
+       所以短按仍会走正常的 click 流程；
+     · 长按到时间后才把 dragging 置为 true，
+       此时监听 click 的捕获阶段把这一次点击吞掉，
+       避免松手时又触发按钮；
+     · 若在长按之前手指/鼠标移动超过容差，说明是误触，取消拖动意图。
+
+   为什么拖动后用 left/top 而非 right/top 定位：
+     一旦栏被拖到屏幕中间，"距右边缘的距离"就没有意义了。
+     拖动与复位共用同一套坐标，避免两套定位互相打架。
 
    位置保存在 localStorage，刷新后仍在原处。
    ============================================================ */
@@ -134,10 +147,8 @@ const RAIL_POS_KEY = 'rail-position';
 /** 长按多久算作拖动意图（毫秒） */
 const RAIL_HOLD_MS = 180;
 
-/** 超出这个位移才认为是真的在拖（避免手抖） */
+/** 超出这个位移就取消长按意图（避免手抖把点击变成拖动） */
 const RAIL_MOVE_TOLERANCE = 4;
-
-const railBrand = $('#rail-home');
 
 /** 把 left/top 换算成 CSS 值，并保证整个栏都在视口内 */
 function clampRailPos(left, top) {
@@ -150,7 +161,7 @@ function clampRailPos(left, top) {
   };
 }
 
-/** 应用位置：切到以左上角定位 */
+/** 应用位置：切换为左上角定位 */
 function applyRailPos(left, top) {
   railEl.style.left = left + 'px';
   railEl.style.top = top + 'px';
@@ -195,52 +206,54 @@ window.addEventListener('resize', () => {
   applyRailPos(p.left, p.top);
 });
 
-if (railBrand) {
-  let holdTimer = null;
-  let dragging = false;
+(function enableRailDrag() {
+  let holdTimer = null;       // 长按计时器
+  let dragging = false;       // 是否已进入拖动
+  let swallowClick = false;   // 是否需要吞掉随后的 click
   let startX = 0, startY = 0;
   let originLeft = 0, originTop = 0;
-  let movedEnough = false;
 
+  /** 结束拖动，必要时保存位置 */
   const endDrag = () => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
     if (!dragging) return;
+
     dragging = false;
     railEl.classList.remove('dragging');
 
-    if (movedEnough) {
-      const r = railEl.getBoundingClientRect();
-      try {
-        localStorage.setItem(RAIL_POS_KEY,
-          JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
-      } catch { /* 存不下就算了，不影响使用 */ }
-    }
+    const r = railEl.getBoundingClientRect();
+    try {
+      localStorage.setItem(RAIL_POS_KEY,
+        JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
+    } catch { /* 存不下就算了，不影响使用 */ }
   };
 
-  railBrand.addEventListener('pointerdown', (e) => {
-    // 只响应左键
-    if (e.button !== 0) return;
+  railEl.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;          // 只响应左键
 
     startX = e.clientX;
     startY = e.clientY;
-    movedEnough = false;
+    swallowClick = false;
 
     const r = railEl.getBoundingClientRect();
     originLeft = r.left;
     originTop = r.top;
 
-    // 长按计时：到时间才进入拖动状态
     holdTimer = setTimeout(() => {
       holdTimer = null;
       dragging = true;
+      swallowClick = true;               // 这一次不算点击
       railEl.classList.add('dragging');
-      // 拖动期间保持展开，方便看清整个栏
-      expandRail();
+      expandRail();                      // 拖动时保持展开，方便看清整栏
     }, RAIL_HOLD_MS);
   });
 
   document.addEventListener('pointermove', (e) => {
     if (!dragging) {
-      // 还没进入拖动：若位移过大，说明用户只是想点一下，取消长按
+      // 未进入拖动：位移超容差说明用户想点而不是拖，取消长按意图
       if (holdTimer && (Math.abs(e.clientX - startX) > RAIL_MOVE_TOLERANCE
                      || Math.abs(e.clientY - startY) > RAIL_MOVE_TOLERANCE)) {
         clearTimeout(holdTimer);
@@ -249,8 +262,8 @@ if (railBrand) {
       return;
     }
 
+    // 拖动中：阻止选中文字等默认行为
     e.preventDefault();
-    movedEnough = true;
 
     const p = clampRailPos(
       originLeft + (e.clientX - startX),
@@ -259,37 +272,29 @@ if (railBrand) {
     applyRailPos(p.left, p.top);
   });
 
-  const cancelHold = () => {
-    if (holdTimer) {
-      clearTimeout(holdTimer);
-      holdTimer = null;
-    }
-  };
-
-  railBrand.addEventListener('pointerup', () => {
-    cancelHold();
-    endDrag();
-  });
-  railBrand.addEventListener('pointercancel', () => {
-    cancelHold();
-    endDrag();
-  });
   document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
 
-  // 拖动中不要触发"点击返回首页"
-  railBrand.addEventListener('click', (e) => {
-    if (movedEnough) {
+  // 长时间按住不应弹出右键菜单
+  railEl.addEventListener('contextmenu', (e) => {
+    if (dragging) e.preventDefault();
+  });
+
+  // 捕获阶段拦截：长按拖动后的那一次 click 不应触发按钮
+  railEl.addEventListener('click', (e) => {
+    if (swallowClick) {
       e.preventDefault();
       e.stopPropagation();
-      movedEnough = false;
+      swallowClick = false;
     }
   }, true);
 
-  // 双击品牌区 → 恢复默认位置（拖丢了能找回来）
-  railBrand.addEventListener('dblclick', () => {
+  // 双击恢复默认位置（拖到找不到的地方时用）
+  railEl.addEventListener('dblclick', (e) => {
+    e.preventDefault();
     resetRailPos();
   });
-}
+})();
 
 /* ============================================================
    视图切换
