@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "id": "T001",
+      "building": "教学楼A",
+      "room": "A101",
+      "task_type": "安装新软件",
+      "teacher": "张老师",
+      "major": "计算机科学与技术",
+      "detail": "需要安装 Python 和 VS Code，下周一上课要用（示例数据，可删除）",
+      "due": "2026-10-25",
+      "priority": "高",
+      "status": "待完成",
+      "created": "2026-10-16 10:00",
+      "finished": "",
+      "note": ""
+    }
+  ]
+}
