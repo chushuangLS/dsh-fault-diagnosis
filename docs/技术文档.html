@@ -273,7 +273,7 @@ tr:nth-child(even) td { background: #f8fafc; }
     <li class="l2"><span>3.1 对话式逐层排查</span><span></span></li>
     <li class="l2"><span>3.2 轻量 RAG 知识库</span><span></span></li>
     <li class="l2"><span>3.3 知识库自动沉淀</span><span></span></li>
-    <li class="l2"><span>3.4 设备状态三态模型</span><span></span></li>
+    <li class="l2"><span>3.4 设备状态四态模型</span><span></span></li>
     <li class="l2"><span>3.5 并发写入保护</span><span></span></li>
 
     <li><span>四、意图控制策略</span><span>13</span></li>
@@ -428,7 +428,7 @@ tr:nth-child(even) td { background: #f8fafc; }
   <tr>
     <td><code>classroom.py</code></td>
     <td>300</td>
-    <td>教学楼 / 教室两级台账；三态统计</td>
+    <td>教学楼 / 教室两级台账；四态统计</td>
   </tr>
   <tr>
     <td><code>excel_export.py</code></td>
@@ -683,10 +683,10 @@ for _std, _variants in SYNONYMS.items():
     (['音响', '音箱', '耳机', '话筒', '麦克风', '没声音', '杂音'], '音频故障'),
 ]</code></pre>
 
-<h2>3.4 设备状态三态模型</h2>
+<h2>3.4 设备状态四态模型</h2>
 
 <p>
-设备的可用状态设计为三种（面向运维）与两种（面向领导报表）两套口径：
+设备的可用状态设计为四种（面向运维）与两种（面向领导报表）两套口径：
 </p>
 
 <table>
@@ -701,7 +701,7 @@ for _std, _variants in SYNONYMS.items():
     <td>损坏</td>
   </tr>
   <tr>
-    <td><span style="color:#ca8a04">待自修</span></td>
+    <td><span style="color:#ca8a04">可自修</span></td>
     <td>非硬件问题，可自行修复</td>
     <td>损坏</td>
   </tr>
@@ -716,6 +716,16 @@ for _std, _variants in SYNONYMS.items():
     <td>正常</td>
   </tr>
 </table>
+
+<div class="callout">
+  <b>「损坏」的含义要有意说清：</b>
+  它指的是<b>设备能不能用</b>，与报没报修无关。
+  因此 损坏 = 未报修 + 可自修 + 已报修。<br><br>
+  界面上最初把这一项标成了「需报修」，但已报修的那几台并不需要<b>再</b>报修，
+  名称与实际含义不符，后来统一改为「损坏」。
+  这个概念区分很重要：<b>「坏没坏」是设备属性，「报没报修」是处理进度</b>，
+  两者是不同的维度，混在一个标签里就会说不清。
+</div>
 
 <div class="callout">
   <b>为什么报表要合并成两种：</b>
@@ -747,31 +757,41 @@ Flask 默认多线程，多个请求可能同时「读-改-写」同一个数据
 没有锁时，后写的会覆盖先写的，导致<b>数据丢失</b>。
 </p>
 
+<h3>两层锁的设计</h3>
+
+<p>
+最终的实现用了两层锁，这是被两个真实缺陷逼出来的结构：
+</p>
+
 <pre><code>@contextlib.contextmanager
 def file_lock(target_path):
-    """对目标文件加排他锁（锁文件为 target_path + '.lock'）"""
-    lock_path = target_path + '.lock'
-    fh = open(lock_path, 'w')
-    locked = False
-    try:
+    """
+    第一层：进程内可重入锁（threading.RLock）
+    第二层：跨进程文件锁（flock / msvcrt）
+    """
+    key = os.path.abspath(target_path)
+    local = _get_local_lock(target_path)
+
+    with local:
+        # 本线程是否已持有该文件的系统锁 → 本次是内层重入
+        if key in _held_paths():
+            yield
+            return          # 内层不碰系统锁，直接执行
+
+        lock_path = target_path + '.lock'
+        fh = open(lock_path, 'w')
         try:
             import fcntl                      # Linux / macOS
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            locked = True
         except ImportError:
             import msvcrt                     # Windows
-            fh.seek(0)
             msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
-            locked = True
-        yield
-    finally:
-        if locked:
-            # 释放锁
-            ...</code></pre>
 
-<p>
-关键点：<b>必须加锁之后再读取</b>，否则读到的仍是过期内容。
-</p>
+        _held_paths().add(key)
+        yield
+        # ……释放锁并清理</code></pre>
+
+<h3>关键点一：必须加锁之后再读取</h3>
 
 <pre><code># 正确做法
 with file_lock(AUTO_FILE):
@@ -780,8 +800,76 @@ with file_lock(AUTO_FILE):
     _write_auto(data)</code></pre>
 
 <p>
-验证方式：10 个线程并发写入，实测 <b>10 条全部落盘</b>，无一丢失。
-这条测试已固化进测试套件（<code>tests/test_concurrency.py</code>）。
+如果先读再加锁，读到的仍是过期内容，锁就白加了。
+</p>
+
+<h3>关键点二：「检查-写入」必须整体持锁</h3>
+
+<p>
+这是开发后期才暴露的一个缺陷。原来「文件不存在则创建」是这么写的：
+</p>
+
+<pre><code>def init_file():
+    if not os.path.exists(RECORD_FILE):          # ← 检查
+        with open(RECORD_FILE, 'w', ...) as f:   # ← 'w' 是截断写
+            csv.writer(f).writerow(FIELDS)</code></pre>
+
+<p>
+多线程同时首次调用时，都会通过 <code>exists()</code> 检查——
+因为此刻文件确实还不存在。随后<b>后到的那个以 <code>'w'</code> 模式打开，
+把先到者刚写入的内容全部清空</b>。
+</p>
+
+<div class="callout warn">
+  <b>这个缺陷只在 Linux 上暴露，而且时好时坏。</b>
+  Windows 下 <code>msvcrt</code> 加锁与线程调度更慢，
+  恰好错开了竞态窗口，因此本地测试一直通过，
+  直到 CI 在 Ubuntu 上跑才暴露出来。<br><br>
+  实测复现：60 轮并发首次创建，<b>47 轮丢数据</b>。
+  修复后同样的压测 0 轮失败。
+</div>
+
+<p>
+修复方式有两处：一是让 <code>init_file</code> 全程持锁，
+创建时改用 <code>'x'</code> 模式做二次保护（并发进入者会拿到
+<code>FileExistsError</code> 而不是把文件截断）；
+二是让 <code>file_lock</code> 支持重入。
+</p>
+
+<h3>关键点三：锁必须可重入</h3>
+
+<p>
+第二条修复有一个前提——如果锁不可重入，给
+<code>init_file</code> 加锁会立刻造成死锁：
+</p>
+
+<pre><code>update_status()
+  └─ 持有锁
+      └─ load_records()
+          └─ init_file()
+              └─ 又要加锁   ← 锁不可重入则死锁</code></pre>
+
+<p>
+业务代码里这种「持锁后调用另一个也会加锁的函数」的写法是合理且常见的，
+因此锁在这一层做成可重入：同一线程重复进入时只累加计数，
+<b>只有最外层才真正去拿系统锁</b>。
+</p>
+
+<p>
+不能直接依赖 <code>flock</code> 的重入行为——同一进程内对同一文件
+用两个不同 fd 加锁，各平台表现并不一致。所以重入由 Python 层
+自己的 <code>RLock</code> 负责，系统锁只在最外层拿一次。
+</p>
+
+<div class="callout good">
+  <b>附带收益：</b>修复后测试耗时从约 32 秒降到约 6 秒。
+  说明此前线程在锁上存在大量无谓等待。
+</div>
+
+<p>
+验证方式：50 轮 × 12 线程高并发压测，0 轮失败；
+另有两项防死锁测试（4 层嵌套加锁、锁内调用 <code>load_records</code>），
+均已固化进 <code>tests/test_concurrency.py</code>。
 </p>
 
 <!-- ==================== 四、意图控制策略 ==================== -->
@@ -912,7 +1000,7 @@ def parse_quantity(text):
 <h2>5.1 自动化测试</h2>
 
 <p>
-项目包含 <b>150 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
+项目包含 <b>159 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
 </p>
 
 <table>
@@ -923,28 +1011,28 @@ def parse_quantity(text):
   </tr>
   <tr>
     <td><code>test_knowledge.py</code></td>
-    <td>34</td>
+    <td>37</td>
     <td>检索质量、假阳性防护、自动沉淀、手工/自动数据隔离</td>
   </tr>
   <tr>
     <td><code>test_repair_log.py</code></td>
-    <td>13</td>
+    <td>12</td>
     <td>台账 CRUD、状态排序、旧 CSV 表头迁移</td>
   </tr>
   <tr>
     <td><code>test_classroom_daily.py</code></td>
     <td>30</td>
-    <td>教室台账校验、三态统计、待办排序与逾期判定</td>
+    <td>教室台账校验、四态统计、待办排序与逾期判定</td>
   </tr>
   <tr>
     <td><code>test_quantity_and_status.py</code></td>
-    <td>37</td>
-    <td>数量解析、状态判定、批量登记、迁移不丢数据</td>
+    <td>38</td>
+    <td>数量解析、状态判定与迁移、批量登记不丢数据</td>
   </tr>
   <tr>
     <td><code>test_concurrency.py</code></td>
-    <td>9</td>
-    <td>并发写入不丢数据、文件锁正确性</td>
+    <td>10</td>
+    <td>并发写入不丢数据、文件锁正确性、锁可重入防死锁</td>
   </tr>
   <tr>
     <td><code>test_excel_export.py</code></td>
@@ -990,7 +1078,7 @@ jobs:
 
 <h2>5.3 典型缺陷与修复</h2>
 
-<p>以下是开发过程中真实发现并修复的四个典型缺陷，均有测试保护：</p>
+<p>以下是开发过程中真实发现并修复的五个典型缺陷，均有测试保护：</p>
 
 <h3>缺陷 1：异常被静默吞掉，知识库悄悄失效</h3>
 
@@ -1066,6 +1154,43 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
 
 <p><b>修复：</b>新增全局 <code>select option</code> 规则统一处理。</p>
 
+<h3>缺陷 5：文件初始化的「检查-写入」竞态</h3>
+
+<p>
+<b>现象：</b>CI 里 Ubuntu 两个 Python 版本时好时坏地失败，
+而 Windows 始终通过。失败只用了 15~19 秒，像是并发用例挂掉。
+</p>
+
+<p>
+<b>根因：</b>数据文件「不存在则创建」这一段的检查与写入之间没有锁，
+而写入用的是 <code>'w'</code> 模式——它是<b>截断写</b>。
+多线程同时首次调用时，后到的会把先到者刚写的内容清空。
+</p>
+
+<pre><code>if not os.path.exists(RECORD_FILE):          # 多个线程都能通过
+    with open(RECORD_FILE, 'w', ...) as f:   # 'w' 截断，覆盖先写入的</code></pre>
+
+<div class="callout warn">
+  <b>为什么本地一直没发现：</b>
+  Windows 的 <code>msvcrt</code> 加锁与线程调度更慢，恰好错开了竞态窗口。
+  这个缺陷只在 Linux 上暴露，而且不是每次都触发——
+  很容易被误判为「测试不稳定」而加个重试糊过去。
+  但它会真的丢数据：两个管理员同时提交报修，就可能少一条记录。<br><br>
+  实测复现：60 轮并发首次创建，<b>47 轮丢数据</b>。
+</div>
+
+<p>
+<b>修复：</b>整个检查-创建过程持锁；创建改用 <code>'x'</code> 模式
+（并发进入者会拿到 <code>FileExistsError</code>，而不是把文件截断）。
+由于这一步加锁后与已有调用路径形成嵌套，同时把
+<code>file_lock</code> 改造成可重入（详见 3.5 节）。
+</p>
+
+<p>
+<b>验证：</b>修复后 60 轮压测 0 失败；新增回归测试并确认
+<b>移除修复后该测试会立即失败</b>，确保测试真正覆盖了这个缺陷。
+</p>
+
 <!-- ==================== 六、可复现性论证 ==================== -->
 <h1>六、可复现性论证</h1>
 
@@ -1100,7 +1225,7 @@ cd src
 python app.py
 # 浏览器访问 http://127.0.0.1:5000
 
-# 5) 运行测试（可选，150 个用例）
+# 5) 运行测试（可选，159 个用例）
 pip install -r requirements-dev.txt
 python -m pytest tests -v</code></pre>
 
@@ -1113,7 +1238,7 @@ python -m pytest tests -v</code></pre>
 <h2>6.3 演进链路</h2>
 
 <p>
-代码仓库保留了完整的细粒度提交历史，共 <b>45 个提交</b>，
+代码仓库保留了完整的细粒度提交历史，共 <b>55 个提交</b>，
 首次提交仅包含 <code>.gitignore</code>（不是一次性 initial commit）。
 每次提交对应一个功能模块或一次修复：
 </p>
@@ -1158,11 +1283,11 @@ python -m pytest tests -v</code></pre>
   <tr>
     <td rowspan="2">工程化</td>
     <td>v0.9.0</td>
-    <td>150 个测试 → CI → 统一文件锁 → 会话回收</td>
+    <td>159 个测试 → CI → 统一文件锁 → 会话回收</td>
   </tr>
   <tr>
     <td>v0.10.0</td>
-    <td>Excel 报表 → 三态模型 → 界面重构</td>
+    <td>Excel 报表 → 四态模型 → 界面重构</td>
   </tr>
 </table>
 
