@@ -25,8 +25,20 @@ const landingEl = $('#landing');
 const appEl = $('#app');
 let currentView = 'chat';
 
+/**
+ * 切换背景的动静程度
+ *
+ * 落地页用清晰的线条当视觉主体；进入应用后淡化一半，
+ * 既能看出背景在动，又不干扰读表格与对话。
+ * 透明度本身由 background.js 做渐变，这里只发指令。
+ */
+function setBgMode(mode) {
+  if (window.BgField) window.BgField.setMode(mode);
+}
+
 function enterApp(view) {
   animateNumbersReset();
+  setBgMode('app');
   landingEl.classList.add('exit');
   setTimeout(() => {
     landingEl.classList.add('hidden');
@@ -38,6 +50,7 @@ function enterApp(view) {
 }
 
 function backToLanding() {
+  setBgMode('landing');
   appEl.classList.add('hidden');
   landingEl.classList.remove('hidden', 'exit');
   // 重新触发入场动画

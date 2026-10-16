@@ -180,13 +180,17 @@
   </symbol>
 </svg>
 
-<!-- 背景装饰层 -->
-<div class="bg-decor">
-  <div class="orb orb-1"></div>
-  <div class="orb orb-2"></div>
-  <div class="orb orb-3"></div>
-  <div class="grid-overlay"></div>
-</div>
+<!-- ============================================================
+     动态线条背景
+
+     由 background.js 在 Canvas 上绘制：细密平行线被噪声场扰动，
+     形成缓慢起伏的布料感；鼠标是额外的扰动源，会把线条轻轻拨开。
+
+     两种模式（参数只差透明度，切换时不跳变）：
+       落地页 0.28 —— 清晰，是页面视觉主体
+       应用页 0.14 —— 淡化，能看出在动但不干扰阅读
+     ============================================================ -->
+<canvas id="bg-canvas" aria-hidden="true"></canvas>
 
 <!-- ========== 落地页 ========== -->
 <div id="landing" class="landing">
@@ -625,6 +629,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+<script src="{{ url_for('static', filename='background.js') }}?v={{ asset_version }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

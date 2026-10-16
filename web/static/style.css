@@ -270,57 +270,20 @@ button:active:not(:disabled),
 button:disabled { cursor: not-allowed; }
 
 /* ============================================================
-   背景装饰
+   动态线条背景（Canvas）
+
+   由 background.js 绘制，这里只负责铺满整屏并压在内容之下。
+   注意 pointer-events: none —— 背景不能拦截鼠标事件，
+   否则下方的按钮、卡片都点不到。
    ============================================================ */
-.bg-decor {
+#bg-canvas {
   position: fixed;
   inset: 0;
   z-index: 0;
-  overflow: hidden;
+  display: block;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-}
-
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.35;
-  animation: float 22s ease-in-out infinite;
-}
-.orb-1 {
-  width: 480px; height: 480px;
-  background: radial-gradient(circle, #3b82f6, transparent 70%);
-  top: -160px; left: -120px;
-}
-.orb-2 {
-  width: 400px; height: 400px;
-  background: radial-gradient(circle, #8b5cf6, transparent 70%);
-  bottom: -140px; right: -100px;
-  animation-delay: -7s;
-}
-.orb-3 {
-  width: 320px; height: 320px;
-  background: radial-gradient(circle, #06b6d4, transparent 70%);
-  top: 45%; left: 55%;
-  animation-delay: -14s;
-  opacity: 0.22;
-}
-
-@keyframes float {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%      { transform: translate(40px, -50px) scale(1.08); }
-  66%      { transform: translate(-30px, 40px) scale(0.94); }
-}
-
-.grid-overlay {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse at 50% 40%, #000 25%, transparent 78%);
-  -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 25%, transparent 78%);
 }
 
 /* ============================================================

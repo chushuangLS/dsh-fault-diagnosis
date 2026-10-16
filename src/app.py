@@ -136,7 +136,7 @@ def _asset_version():
     static_dir = os.path.join(BASE_DIR, 'web', 'static')
     stamps = []
     try:
-        for name in ('style.css', 'app.js'):
+        for name in ('style.css', 'app.js', 'background.js'):
             path = os.path.join(static_dir, name)
             if os.path.exists(path):
                 stamps.append(str(int(os.path.getmtime(path))))
