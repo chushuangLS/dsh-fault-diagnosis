@@ -238,7 +238,26 @@ def api_chat_stream():
         )
 
     # 建立（或复用）会话，并把对象取出来
-    ds = get_session()
+    #
+    # 注意：这里可能因为「未配置 DEEPSEEK_API_KEY」等原因失败。
+    # 如果直接让异常抛出去，Flask 会返回一个 HTML 500 页面，
+    # 前端只会显示"请求失败"，用户完全不知道问题出在哪。
+    # 所以这里捕获后，用 SSE 格式把具体原因回给前端。
+    try:
+        ds = get_session()
+    except Exception as e:
+        reason = str(e)
+
+        def gen_error():
+            yield f"data: {json.dumps({'type': 'text', 'content': '⚠ ' + reason}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'end', 'finished': False, 'need_repair': False, 'error': reason}, ensure_ascii=False)}\n\n"
+
+        return app.response_class(
+            gen_error(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
+
     sid = session.get('sid')
 
     # 前端已选教室 → 注入对话上下文，AI 就不会再问
@@ -742,6 +761,22 @@ if __name__ == '__main__':
     print(f'  机房故障智能诊断助手 · Web 版  v{version.VERSION}')
     print('=' * 55)
     print()
+
+    # 启动时先检查 API Key，避免用户在对话页才发现用不了
+    if not os.environ.get('DEEPSEEK_API_KEY'):
+        print('  ⚠ 未检测到环境变量 DEEPSEEK_API_KEY')
+        print('    诊断功能将无法使用，请先配置后再启动：')
+        print()
+        print('      临时（仅当前终端）：')
+        print('        $env:DEEPSEEK_API_KEY = "你的key"')
+        print()
+        print('      永久（需重开终端）：')
+        print('        [Environment]::SetEnvironmentVariable(')
+        print('          "DEEPSEEK_API_KEY", "你的key", "User")')
+        print()
+        print('    报修台账、教室管理、报表导出等功能不受影响。')
+        print()
+
     print('  访问地址: http://127.0.0.1:5000')
     print('  按 Ctrl+C 停止服务')
     print()
