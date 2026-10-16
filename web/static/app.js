@@ -118,37 +118,29 @@ railEl.addEventListener('focusin', expandRail);
 railEl.addEventListener('focusout', scheduleCollapseRail);
 
 /* ============================================================
-   侧边栏拖拽（长按栏内任意位置拖动）
+   侧边栏拖拽（按住栏内任意位置即可拖动）
 
    交互约定：
-     短按（< 180ms 且几乎没动） → 正常点击按钮
-     长按（≥ 180ms）           → 进入拖动，跟随鼠标移动
-     双击                       → 恢复默认位置（右侧居中）
+     按住不动再松开 → 正常点击按钮
+     按住后移动     → 拖动侧边栏（跟随鼠标）
+     双击           → 恢复默认位置（右侧居中）
 
-   为什么用长按而不是直接拖：
-     栏里全是按钮，直接拖会在每次点击时误触发位移。
+   为什么不需要长按等待：
+     浏览器只在"按下与松开在同一元素上、且中间没有明显移动"时才派发
+     click。拖动时用户一直按着不放，松手的位置已经变了，
+     那次 click 本来就不会触发按钮。
+     所以按下即可进入拖动，不必等计时器，手感更跟手。
 
-   怎么做到"长按拖动"与"短按点击"互不干扰：
-     · 在 pointerdown 时启动计时器，未到时间前不拦截任何事件，
-       所以短按仍会走正常的 click 流程；
-     · 长按到时间后才把 dragging 置为 true，
-       此时监听 click 的捕获阶段把这一次点击吞掉，
-       避免松手时又触发按钮；
-     · 若在长按之前手指/鼠标移动超过容差，说明是误触，取消拖动意图。
+   仍然保留一个小的位移容差（3px）：
+     纯粹为了兜住手抖——按下时轻微抖动不会把点击变成拖动。
 
-   为什么拖动后用 left/top 而非 right/top 定位：
-     一旦栏被拖到屏幕中间，"距右边缘的距离"就没有意义了。
-     拖动与复位共用同一套坐标，避免两套定位互相打架。
-
-   位置保存在 localStorage，刷新后仍在原处。
-   ============================================================ */
+   为什么用 pointer 事件而不是 mouse 事件：
+     pointer 同时覆盖鼠标、触控笔和触摸屏，一套代码全平台可用。
+    ============================================================ */
 const RAIL_POS_KEY = 'rail-position';
 
-/** 长按多久算作拖动意图（毫秒） */
-const RAIL_HOLD_MS = 180;
-
-/** 超出这个位移就取消长按意图（避免手抖把点击变成拖动） */
-const RAIL_MOVE_TOLERANCE = 4;
+/** 超出这个位移才算拖动（兜住按下瞬间的手抖） */
+const RAIL_MOVE_TOLERANCE = 3;
 
 /** 把 left/top 换算成 CSS 值，并保证整个栏都在视口内 */
 function clampRailPos(left, top) {
@@ -207,18 +199,14 @@ window.addEventListener('resize', () => {
 });
 
 (function enableRailDrag() {
-  let holdTimer = null;       // 长按计时器
   let dragging = false;       // 是否已进入拖动
-  let swallowClick = false;   // 是否需要吞掉随后的 click
+  let armed = false;          // 已按下、等待判断是"点击"还是"拖动"
   let startX = 0, startY = 0;
   let originLeft = 0, originTop = 0;
 
-  /** 结束拖动，必要时保存位置 */
+  /** 结束拖动，保存位置 */
   const endDrag = () => {
-    if (holdTimer) {
-      clearTimeout(holdTimer);
-      holdTimer = null;
-    }
+    armed = false;
     if (!dragging) return;
 
     dragging = false;
@@ -234,36 +222,32 @@ window.addEventListener('resize', () => {
   railEl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;          // 只响应左键
 
+    armed = true;
+    dragging = false;
     startX = e.clientX;
     startY = e.clientY;
-    swallowClick = false;
 
     const r = railEl.getBoundingClientRect();
     originLeft = r.left;
     originTop = r.top;
-
-    holdTimer = setTimeout(() => {
-      holdTimer = null;
-      dragging = true;
-      swallowClick = true;               // 这一次不算点击
-      railEl.classList.add('dragging');
-      expandRail();                      // 拖动时保持展开，方便看清整栏
-    }, RAIL_HOLD_MS);
   });
 
   document.addEventListener('pointermove', (e) => {
+    if (!armed) return;
+
+    // 超过容差才算真的在拖 —— 这一步同时兜住按下瞬间的手抖，
+    // 也保证"想点按钮"时不会被误判成拖动
     if (!dragging) {
-      // 未进入拖动：位移超容差说明用户想点而不是拖，取消长按意图
-      if (holdTimer && (Math.abs(e.clientX - startX) > RAIL_MOVE_TOLERANCE
-                     || Math.abs(e.clientY - startY) > RAIL_MOVE_TOLERANCE)) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-      }
-      return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (dx < RAIL_MOVE_TOLERANCE && dy < RAIL_MOVE_TOLERANCE) return;
+
+      dragging = true;
+      railEl.classList.add('dragging');
+      expandRail();                      // 拖动时保持展开，方便看清整栏
     }
 
-    // 拖动中：阻止选中文字等默认行为
-    e.preventDefault();
+    e.preventDefault();                  // 阻止选中文字等默认行为
 
     const p = clampRailPos(
       originLeft + (e.clientX - startX),
@@ -275,17 +259,17 @@ window.addEventListener('resize', () => {
   document.addEventListener('pointerup', endDrag);
   document.addEventListener('pointercancel', endDrag);
 
-  // 长时间按住不应弹出右键菜单
+  // 拖动中不应弹出右键菜单
   railEl.addEventListener('contextmenu', (e) => {
     if (dragging) e.preventDefault();
   });
 
-  // 捕获阶段拦截：长按拖动后的那一次 click 不应触发按钮
+  // 兜底：万一浏览器仍在拖动后派发了 click，这里拦掉
+  // （正常情况下 click 不会触发，因为按下与松开已不在同一位置）
   railEl.addEventListener('click', (e) => {
-    if (swallowClick) {
+    if (dragging) {
       e.preventDefault();
       e.stopPropagation();
-      swallowClick = false;
     }
   }, true);
 
