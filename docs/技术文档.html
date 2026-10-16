@@ -643,6 +643,12 @@ for _std, _variants in SYNONYMS.items():
 </p>
 
 <pre><code>def save_case(symptom, conclusion, excluded=None, classroom=''):
+    # 整段持锁：查重 → 生成编号 → 追加 必须是一个原子操作
+    with file_lock(AUTO_FILE):
+        return _save_case_locked(symptom, conclusion, excluded, classroom)
+
+
+def _save_case_locked(symptom, conclusion, excluded, classroom):
     # 1) 去重：现象高度相似的不重复添加
     existing = search(symptom, top_n=1, min_score=8.0)
     if existing:
@@ -659,6 +665,16 @@ for _std, _variants in SYNONYMS.items():
     # 4) 只追加到自动沉淀文件，不碰手工文件
     _append_auto_case(new_case)
     return True, new_id</code></pre>
+
+<div class="callout warn">
+  <b>为什么整段都要持锁（而不是只锁最后一步）：</b>
+  最初的实现只给「追加」那一步加锁，查重和编号生成都在锁外。
+  并发沉淀时两个线程会读到相同的文件内容，
+  于是各自判断「没有重复」、各自算出同一个编号 ——
+  实测两条「外设故障」都拿到了 <code>DEV-001</code>。<br><br>
+  编号是基于「当前全部案例」算出来的，只要这次读取发生在锁外，
+  拿到的就必然是过期快照，冲突只是时间问题。
+</div>
 
 <h3>分类推断的规则设计</h3>
 
@@ -1046,6 +1062,18 @@ def parse_quantity(text):
   例如测试「正常 + 损坏 = 设备总数」这条业务规则，
   而不是测试某个函数的具体实现细节——前者改代码时仍成立，
   后者稍作重构就会误报。
+</div>
+
+<div class="callout warn">
+  <b>要警惕「因为错误的原因而通过」的测试。</b>
+  并发沉淀那一条测试曾经用 8 条只差一个字符的症状当作「不同故障」，
+  而系统的去重逻辑会把它们正确判为重复。
+  在 Windows 上线程启动较慢，8 个线程恰好在任何写入之前都完成了查重，
+  于是全部写入、测试通过；Linux 上线程启动快，就露出了真面目。<br><br>
+  <b>这种测试比没有测试更危险</b>——它给出一种虚假的安全感，
+  失败时又表现为「时好时坏、只在某个平台挂」，
+  很容易被当成环境问题而加个重试糊过去。
+  判断依据很简单：<b>如果一条测试的结论取决于线程时序，那它测的就不是业务规则。</b>
 </div>
 
 <h2>5.2 持续集成</h2>
