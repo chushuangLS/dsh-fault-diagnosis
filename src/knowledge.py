@@ -539,12 +539,27 @@ def save_case(symptom, conclusion, excluded=None, classroom=''):
     返回：(是否新增, 案例 id 或提示信息)
 
     去重策略：现象高度相似的案例不重复添加
+
+    ⚠ 整个「查重 → 生成编号 → 追加」必须是一个原子操作（持同一把锁）。
+      曾经只有追加那一步加锁，查重和编号生成都在锁外，于是并发时：
+        · 两个线程读到相同的文件内容，各自判断"没有重复" → 都写入；
+        · 编号基于当前全部案例生成，两个线程会算出同一个号。
+      实测并发沉淀 8 条时，两条「外设故障」都拿到了 DEV-001。
     """
     symptom = (symptom or '').strip()
     conclusion = (conclusion or '').strip()
 
     if not symptom or not conclusion:
         return False, '现象或结论为空，不沉淀'
+
+    # 整段持锁。file_lock 可重入，因此 _append_auto_case 内部的锁
+    # 不会再真正去拿系统锁，只是空转一层。
+    with file_lock(AUTO_FILE):
+        return _save_case_locked(symptom, conclusion, excluded, classroom)
+
+
+def _save_case_locked(symptom, conclusion, excluded, classroom):
+    """save_case 的实际逻辑（调用方须已持 AUTO_FILE 的锁）"""
 
     # 去重：只有现象高度相似时才跳过
     # 阈值设得高一些，避免把不同故障误判为重复

@@ -74,19 +74,52 @@ class TestConcurrentWrites:
         """
         并发沉淀知识案例，不应丢失
 
-        注意：症状必须足够不同，否则会被去重逻辑拦掉（那是正确行为）。
+        ⚠ 症状必须真正互不相同。
+        曾经这里用的是 f'并发测试专用故障描述甲乙丙丁{i}' ——
+        8 条只差最后一个字符，检索相似度高达 24（去重阈值是 8），
+        于是除第一条外全被去重拦掉。
+
+        这个错误只在 Linux 上暴露：
+          · Windows 线程启动较慢，8 个线程都在任何写入之前完成查重，
+            于是全部写入，测试碰巧通过；
+          · Linux 线程启动快，第 1 条先落盘，其余 7 条查重时发现"已存在"
+            而被拦下，最终不足 8 条。
+        结果就是一个「时好时坏、只在 Linux 挂」的假故障。
+
+        现在改用语义上真正不同的故障描述，确保不会被去重命中。
         """
+        distinct = [
+            '显示器完全没有画面，电源灯闪烁橙色',
+            '键盘有一半按键按下去没有任何反应',
+            '打印机进纸之后卡住而且伴随异响',
+            '机箱风扇转速异常导致噪音特别大',
+            '系统启动后反复自动重启进不了桌面',
+            'U盘插上去之后电脑识别不到任何设备',
+            '投影仪画面颜色偏黄并且有横向条纹',
+            '网络图标显示感叹号并且打不开网页',
+        ]
+
         def add(i):
             return knowledge.save_case(
-                symptom=f'并发测试专用故障描述甲乙丙丁{i}',
+                symptom=distinct[i],
                 conclusion=f'原因：测试原因{i}。\n处理：忽略。',
             )
 
-        errors = _run_threads(add, n=8)
+        errors = _run_threads(add, n=len(distinct))
         assert not errors, errors
 
-        n = len(json.load(open(knowledge.AUTO_FILE, encoding='utf-8'))['cases'])
-        assert n == 8, f'预期 8 条，实际 {n} 条'
+        data = json.load(open(knowledge.AUTO_FILE, encoding='utf-8'))
+        cases = data['cases']
+        assert len(cases) == len(distinct), (
+            f'预期 {len(distinct)} 条，实际 {len(cases)} 条'
+            '（症状若过于相似会被去重拦掉，那是正确行为，'
+            '但会让本测试测不出并发问题）'
+        )
+
+        # 并发下编号也不能重复
+        # （编号需要基于当前全部案例生成，若在锁外生成就会撞号）
+        ids = [c.get('id') for c in cases]
+        assert len(ids) == len(set(ids)), f'编号重复: {ids}'
 
     def test_concurrent_status_updates_keep_file_valid(self, tmp_data):
         """并发改状态后，CSV 仍应是完整可解析的"""

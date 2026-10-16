@@ -26,19 +26,36 @@ _WINDOW = 6000
 
 def _failure_message(output, test_name):
     """从 pytest 输出里截取某个失败用例的断言行"""
-    i = output.find(test_name)
-    if i == -1:
-        return '测试失败'
+    # 用例名在输出里会出现三次：
+    #   1. -v 的进度行
+    #   2. FAILURES 段的标题（形如 ____ test_y ____）
+    #   3. 结尾的 short test summary（FAILED tests/xxx.py::test_y）
+    # 只有第 2 处后面跟着报错详情，所以要按标题去找，
+    # 不能简单用 find / rfind。
+    leaf = test_name.split('::')[-1]
 
-    # 从用例名往后再找一段，取其中的 E 行（pytest 用 E 标记断言/异常）
-    window = output[i:i + _WINDOW]
+    # pytest 的失败标题：两侧用下划线包起来
+    m = re.search(r'^_{5,}\s+' + re.escape(leaf) + r'\s+_{5,}\s*$',
+                  output, re.M)
+    start = m.end() if m else -1
+
+    if start == -1:
+        # 没有 tb 时（例如 --tb=no）退化为按用例名找
+        start = output.find(test_name)
+
+    window = output[start:start + _WINDOW] if start != -1 else ''
+
+    # pytest 用 E 前缀标记断言/异常行
     lines = [ln.strip() for ln in re.findall(r'^E\s+(.+)$', window, re.M)]
+    if lines:
+        return ' | '.join(lines[:3])[:220]
 
-    if not lines:
-        return '测试失败（未捕获到断言行）'
+    # 退一步：直接找 AssertionError
+    m2 = re.search(r'^(AssertionError.*)$', window, re.M)
+    if m2:
+        return m2.group(1)[:220]
 
-    # 前几行通常是最有价值的（AssertionError + 对比值）
-    return ' | '.join(lines[:3])[:220]
+    return '测试失败（未捕获到断言行）'
 
 
 def main():
