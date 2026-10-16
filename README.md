@@ -31,7 +31,8 @@
 | v0.6.0 | 教室设备台账、知识库检索增强与自动沉淀、日常报备 | ✅ 已完成 |
 | v0.7.0 | 知识库检索增强（RAG 轻量实现）与自动沉淀 | ✅ 已完成 |
 | v0.8.0 | 自动沉淀数据分离、检索粒度修复、并发写入保护 | ✅ 已完成 |
-| v0.9.0 | 会话持久化、报告导出 | 📋 计划中 |
+| v0.9.0 | 自动化测试与 CI、统一文件锁、会话回收 | ✅ 已完成 |
+| v1.0.0 | 报告导出、部署到机房内网供团队使用 | 📋 计划中 |
 
 > 版本号的单一来源是 `src/version.py`，改动版本时同步更新本表。
 
@@ -149,6 +150,30 @@ python main.py
 
 常用命令：`help` 查看帮助、`r` 重新开始、`log` 查看报修记录、`q` 退出。
 
+## 运行测试
+
+项目带一套自动化测试，覆盖知识库检索、报修台账、教室管理与并发安全：
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -v
+```
+
+当前 **80 个测试全部通过**。测试不调用真实大模型 API，无需配置 API Key。
+
+重点覆盖了历史上真实出现过的缺陷，防止再次退化：
+
+| 测试类 | 防的是什么 |
+|---|---|
+| `TestInferCategory` | 分类误判（如"风扇声音大"被判成音频故障） |
+| `TestSearch` | 检索漏配（同义表达、切分粒度）与假阳性 |
+| `TestSediment` | 自动沉淀写脏手工知识库、重号、漏去重 |
+| `TestConcurrency` | 多线程并发写入丢数据 |
+
+CI 配置在 `.github/workflows/tests.yml`，每次推送自动在
+**Windows / Linux × Python 3.10 / 3.12** 四种组合上跑一遍
+（文件锁在 Windows 走 `msvcrt`、Linux 走 `fcntl`，两条分支都要验证）。
+
 ## 项目结构
 
 ```
@@ -171,12 +196,16 @@ dsh-fault-diagnosis/
 │   ├── classroom.py              # 教室与设备台账
 │   ├── daily_task.py             # 日常报备待办
 │   ├── repair_log.py             # 报修记录
+│   ├── filelock.py               # 跨平台文件锁（并发写入保护）
 │   ├── version.py                # 版本号（单一来源）
 │   └── decision_tree.py          # 决策树引擎（暂缓使用）
 ├── web/
 │   ├── templates/index.html      # 页面
 │   └── static/                   # 样式、脚本、ECharts（本地引入）
+├── tests/                        # 自动化测试（pytest）
+├── .github/workflows/tests.yml   # CI：推送自动跑测试
 ├── requirements.txt
+├── requirements-dev.txt
 ├── .gitignore
 └── README.md
 ```
