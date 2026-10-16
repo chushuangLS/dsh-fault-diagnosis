@@ -1,11 +1,14 @@
 name: tests
 
-# 每次推送到 main、以及所有 PR 都跑一遍测试
+# 每次推送到 main、以及所有 PR 都跑一遍测试。
+# workflow_dispatch 允许在网页上手动重跑 ——
+# 验证「偶发失败」是否已修好时不必特意推一个空提交。
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
