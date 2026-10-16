@@ -164,6 +164,105 @@ def update_status(record_id, new_status, note=''):
     return True, f"记录 {record_id} 已更新为「{new_status}」"
 
 
+def update_record(record_id, **fields):
+    """
+    修改记录的任意字段
+
+    允许改：故障现象、诊断结论、备注、教室、教学楼
+    （状态用 update_status，时间不允许改）
+
+    返回：(是否成功, 提示信息)
+    """
+    editable = {
+        '故障现象': 'symptom',
+        '诊断结论': 'conclusion',
+        '备注': 'note',
+        '教室': 'classroom',
+        '教学楼': 'building',
+    }
+
+    records = load_records()
+    for r in records:
+        if r['记录编号'] != record_id:
+            continue
+
+        for cn, en in editable.items():
+            if en in fields and fields[en] is not None:
+                r[cn] = str(fields[en]).strip()
+
+        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerows(records)
+
+        return True, f'记录 {record_id} 已更新'
+
+    return False, f'未找到记录 {record_id}'
+
+
+def delete_record(record_id):
+    """删除一条记录"""
+    records = load_records()
+    kept = [r for r in records if r['记录编号'] != record_id]
+
+    if len(kept) == len(records):
+        return False, f'未找到记录 {record_id}'
+
+    with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows(kept)
+
+    return True, f'记录 {record_id} 已删除'
+
+
+# 状态的展示优先级：数字越小越靠前
+#   越需要处理的状态排越前，已完成的沉到底部
+STATUS_ORDER = {
+    STATUS_PENDING: 0,    # 未报修  —— 最需要处理
+    STATUS_REPORTED: 1,   # 已报修  —— 等维修
+    STATUS_RESOLVED: 2,   # 已解决  —— 已完结
+}
+
+
+def sort_records(records, by='priority'):
+    """
+    给记录排序
+
+    参数：
+      records - 记录列表
+      by      - 排序方式
+                'priority' 按状态分级（默认）：未报修 → 已报修 → 已解决
+                           同状态内按时间倒序（最新的在前）
+                'time'     纯按时间倒序
+
+    返回：排序后的新列表
+    """
+    if by == 'time':
+        return sorted(records, key=lambda r: r.get('时间', ''), reverse=True)
+
+    def key(r):
+        # 未知状态排在最后
+        order = STATUS_ORDER.get(r.get('状态', ''), 9)
+        # 时间倒序：取负值实现"新的在前"
+        return (order, _neg_time(r.get('时间', '')))
+
+    return sorted(records, key=key)
+
+
+def _neg_time(t):
+    """
+    把时间字符串转成可比较的数值（越大表示越新）
+    用于在升序排序中实现"新的在前"
+    """
+    # "2026-10-16 11:55" → 202610161155
+    digits = ''.join(ch for ch in (t or '') if ch.isdigit())
+    try:
+        return -int(digits) if digits else 0
+    except ValueError:
+        return 0
+
+
 def show_records(status_filter=None):
     """打印记录列表"""
     records = load_records()

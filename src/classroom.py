@@ -211,8 +211,23 @@ def _count_unresolved_by_room():
     return counts
 
 
+def _count_auto_broken(building, room):
+    """某间教室由报修记录自动统计出的损坏数"""
+    key = f'{building}|{room}'
+    return _count_unresolved_by_room().get(key, 0)
+
+
 def summary():
-    """汇总统计（损坏数从报修台账实时计算）"""
+    """
+    汇总统计
+
+    损坏数 = 手动登记数 + 报修台账自动统计数
+
+    为什么两者相加：
+      手动登记 —— 用于"发现了但还没来得及走诊断流程"的临时记录
+      自动统计 —— 从报修台账算出的、有据可查的损坏
+      两者是不同来源，相加才是这间教室真实的损坏总数
+    """
     data = load()
     buildings = data['buildings']
     broken_map = _count_unresolved_by_room()
@@ -220,29 +235,41 @@ def summary():
     total_rooms = 0
     total_pcs = 0
     total_broken = 0
+    total_manual = 0
+    total_auto = 0
 
     for b in buildings:
         for r in b['rooms']:
             total_rooms += 1
             total_pcs += r.get('total', 0)
-            # 损坏数优先用台账实时值；没有台账记录时用人工填写的值兜底
-            key = f"{b['name']}|{r['name']}"
-            if key in broken_map:
-                total_broken += broken_map[key]
-            else:
-                total_broken += r.get('broken', 0)
+
+            manual = r.get('broken', 0)
+            auto = broken_map.get(f"{b['name']}|{r['name']}", 0)
+
+            total_manual += manual
+            total_auto += auto
+            total_broken += manual + auto
 
     return {
         'buildings': len(buildings),
         'rooms': total_rooms,
         'total_pcs': total_pcs,
         'broken_pcs': total_broken,
-        'healthy_pcs': total_pcs - total_broken,
+        'manual_broken': total_manual,
+        'auto_broken': total_auto,
+        'healthy_pcs': max(total_pcs - total_broken, 0),
     }
 
 
 def flat_rooms():
-    """把两级结构拍平，并附上从台账算出的实时损坏数"""
+    """
+    把两级结构拍平
+
+    损坏数拆成两个来源，便于前端解释"这个数字怎么来的"：
+      manual_broken —— 手动登记的
+      auto_broken   —— 从报修台账自动统计的
+      broken        —— 两者之和
+    """
     data = load()
     broken_map = _count_unresolved_by_room()
     out = []
@@ -250,18 +277,21 @@ def flat_rooms():
     for b in data['buildings']:
         for r in b['rooms']:
             key = f"{b['name']}|{r['name']}"
-            # 台账里有记录 → 用实时值；没有 → 用手填值
-            broken = broken_map.get(key, r.get('broken', 0))
+            manual = r.get('broken', 0)
+            auto = broken_map.get(key, 0)
+            broken = manual + auto
             total = r.get('total', 0)
+
             out.append({
                 'building': b['name'],
                 'name': r['name'],
                 'full_name': f"{b['name']}-{r['name']}",
                 'total': total,
                 'broken': broken,
+                'manual_broken': manual,
+                'auto_broken': auto,
                 'healthy': max(total - broken, 0),
                 'note': r.get('note', ''),
-                'from_log': key in broken_map,   # 标注数据来源
             })
     return out
 
