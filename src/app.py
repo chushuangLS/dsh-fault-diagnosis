@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ai_diagnosis import DiagnosisSession
 import repair_log
+import classroom
+import daily_task
 
 # Flask 应用配置
 # templates 和 static 目录放在项目根下
@@ -132,6 +134,9 @@ def api_chat_stream():
     """
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '').strip()
+    # 前端可通过下拉选择教室，此时直接采用（避免再让 AI 追问）
+    picked_building = (data.get('building') or '').strip()
+    picked_classroom = (data.get('classroom') or '').strip()
 
     if not message:
         return jsonify({'error': '消息不能为空'}), 400
@@ -160,6 +165,10 @@ def api_chat_stream():
     ds = get_session()
     sid = session.get('sid')
 
+    # 前端已选教室 → 注入对话上下文，AI 就不会再问
+    if picked_classroom and not ds.classroom:
+        ds.set_location(picked_classroom, picked_building)
+
     if not ds.symptom:
         ds.set_symptom(message)
 
@@ -180,8 +189,10 @@ def api_chat_stream():
                             symptom=ds.symptom,
                             conclusion=payload.get('reply', ''),
                             status=repair_log.STATUS_PENDING,
+                            building=getattr(ds, 'building', '') or '',
                         )
                         payload['record_id'] = rid
+                        payload['building'] = getattr(ds, 'building', '') or ''
 
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -276,6 +287,189 @@ def api_statistics():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# 教室与设备管理
+# ============================================================
+
+@app.route('/api/classrooms', methods=['GET'])
+def api_classrooms():
+    """获取全部教室数据（两级结构 + 汇总）"""
+    data = classroom.load()
+    return jsonify({
+        'buildings': data['buildings'],
+        'summary': classroom.summary(),
+        'flat': classroom.flat_rooms(),
+    })
+
+
+@app.route('/api/classrooms/summary', methods=['GET'])
+def api_classroom_summary():
+    """仅返回汇总（状态栏用）"""
+    return jsonify(classroom.summary())
+
+
+@app.route('/api/classrooms/room-detail', methods=['GET'])
+def api_room_detail():
+    """
+    某教室的设备详情
+
+    参数：?building=教学楼A&room=A101
+    返回：教室台账信息 + 该教室的全部故障记录（含损坏原因）
+    """
+    building = request.args.get('building', '').strip()
+    room = request.args.get('room', '').strip()
+
+    # 教室台账信息
+    info = None
+    for r in classroom.flat_rooms():
+        if r['building'] == building and r['name'] == room:
+            info = r
+            break
+
+    # 该教室的故障记录
+    records = []
+    try:
+        for rec in repair_log.load_records():
+            if (rec.get('教室') or '').strip() != room:
+                continue
+            # 教学楼能对上，或旧记录没有教学楼字段
+            rec_b = (rec.get('教学楼') or '').strip()
+            if rec_b and building and rec_b != building:
+                continue
+            records.append(rec)
+    except Exception:
+        pass
+
+    # 倒序，最新在前
+    records = list(reversed(records))
+
+    # 按状态分组统计
+    pending = [r for r in records if r['状态'] == repair_log.STATUS_PENDING]
+    reported = [r for r in records if r['状态'] == repair_log.STATUS_REPORTED]
+    resolved = [r for r in records if r['状态'] == repair_log.STATUS_RESOLVED]
+
+    return jsonify({
+        'info': info,
+        'records': records,
+        'counts': {
+            'pending': len(pending),
+            'reported': len(reported),
+            'resolved': len(resolved),
+            'unresolved': len(pending) + len(reported),
+        },
+    })
+
+
+@app.route('/api/classrooms/building', methods=['POST'])
+def api_add_building():
+    """新增教学楼"""
+    d = request.get_json(silent=True) or {}
+    ok, msg = classroom.add_building(d.get('name'))
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/classrooms/building/<name>', methods=['DELETE'])
+def api_delete_building(name):
+    """删除教学楼"""
+    ok, msg = classroom.delete_building(name)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/classrooms/room', methods=['POST'])
+def api_add_room():
+    """新增教室"""
+    d = request.get_json(silent=True) or {}
+    ok, msg = classroom.add_room(
+        d.get('building'),
+        d.get('name'),
+        d.get('total', 0),
+        d.get('broken', 0),
+        d.get('note', ''),
+    )
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/classrooms/room', methods=['PUT'])
+def api_update_room():
+    """修改教室（电脑总数 / 损坏数 / 备注）"""
+    d = request.get_json(silent=True) or {}
+    ok, msg = classroom.update_room(
+        d.get('building'),
+        d.get('name'),
+        d.get('total'),
+        d.get('broken'),
+        d.get('note'),
+    )
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/classrooms/room', methods=['DELETE'])
+def api_delete_room():
+    """删除教室"""
+    d = request.get_json(silent=True) or {}
+    ok, msg = classroom.delete_room(d.get('building'), d.get('name'))
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+# ============================================================
+# 日常报备（待办清单）
+# ============================================================
+
+@app.route('/api/tasks', methods=['GET'])
+def api_tasks():
+    """获取报备清单，支持按状态/教室筛选"""
+    status = request.args.get('status') or None
+    room = request.args.get('room') or None
+    return jsonify({
+        'tasks': daily_task.list_tasks(status, room),
+        'summary': daily_task.summary(),
+        'types': daily_task.TASK_TYPES,
+        'priorities': daily_task.ALL_PRIORITY,
+        'statuses': daily_task.ALL_STATUS,
+    })
+
+
+@app.route('/api/tasks', methods=['POST'])
+def api_add_task():
+    """新增报备"""
+    d = request.get_json(silent=True) or {}
+    ok, result = daily_task.add_task(
+        building=d.get('building', ''),
+        room=d.get('room', ''),
+        task_type=d.get('task_type', ''),
+        teacher=d.get('teacher', ''),
+        major=d.get('major', ''),
+        detail=d.get('detail', ''),
+        due=d.get('due', ''),
+        priority=d.get('priority', daily_task.PRIORITY_MID),
+    )
+    if ok:
+        return jsonify({'ok': True, 'id': result, 'message': f'已添加报备 {result}'})
+    return jsonify({'ok': False, 'message': result}), 400
+
+
+@app.route('/api/tasks/<tid>', methods=['PUT'])
+def api_update_task(tid):
+    """修改报备"""
+    d = request.get_json(silent=True) or {}
+    ok, msg = daily_task.update_task(tid, **d)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/tasks/<tid>/toggle', methods=['POST'])
+def api_toggle_task(tid):
+    """在待完成 / 已完成之间切换"""
+    ok, msg = daily_task.toggle_status(tid)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+
+
+@app.route('/api/tasks/<tid>', methods=['DELETE'])
+def api_delete_task(tid):
+    """删除报备"""
+    ok, msg = daily_task.delete_task(tid)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
 
 
 if __name__ == '__main__':
