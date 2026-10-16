@@ -157,7 +157,7 @@ let sessionState = '待开始';
 /**
  * 侧边栏上的角标与统计
  *
- * 上报「待处理」数量：未报修 + 待自修 + 已报修。
+ * 上报「待处理」数量：未报修 + 可自修 + 已报修。
  * 收起状态下角标会缩成一个小红点，展开时显示具体数字。
  */
 async function refreshRailStats() {
@@ -727,6 +727,34 @@ function skeletonLines(n = 3) {
     .join('');
 }
 
+/**
+ * 状态 → CSS 类名
+ *
+ * 用英文类名（st-*）而不是中文，避免中文选择器在不同环境下的编码问题。
+ * 必须与 CSS 中的 .badge.st-* / .cause-item.st-* 保持一致。
+ *
+ * 四处状态配色（徽章 / 条目左边框 / 统计卡 / 图表）都以此为准，
+ * 避免同一个状态在不同位置显示成不同颜色。
+ */
+const STATUS_CLASS = {
+  '未报修': 'st-pending',
+  '可自修': 'st-selffix',
+  '已报修': 'st-reported',
+  '已解决': 'st-resolved',
+};
+
+/** 状态 → 分组标题文案 */
+const GROUP_META = {
+  '未报修': { text: '待处理', desc: '硬件故障，还没联系维修，需要尽快跟进' },
+  '可自修': { text: '可自修', desc: '非硬件问题，可以自己动手解决，不必报修' },
+  '已报修': { text: '等维修', desc: '已报修，等待处理结果' },
+  '已解决': { text: '已完成', desc: '故障已修复' },
+};
+
+function statusClass(status) {
+  return STATUS_CLASS[status] || 'st-pending';
+}
+
 async function loadRecords() {
   const list = $('#record-list');
   list.innerHTML = skeletonCards(4);
@@ -781,13 +809,6 @@ async function loadRecords() {
 
     list.innerHTML = '';
 
-    // 状态分组标题的文案与说明
-    const GROUP_META = {
-      '未报修': { text: '待处理', desc: '还没联系维修，需要尽快跟进' },
-      '已报修': { text: '等维修', desc: '已报修，等待处理结果' },
-      '已解决': { text: '已完成', desc: '故障已修复' },
-    };
-
     let lastStatus = null;
 
     data.records.forEach(r => {
@@ -796,7 +817,7 @@ async function loadRecords() {
         lastStatus = r['状态'];
         const meta = GROUP_META[r['状态']] || { text: r['状态'], desc: '' };
         const head = document.createElement('div');
-        head.className = `group-head ${escapeHtml(r['状态'])}`;
+        head.className = `group-head ${statusClass(r['状态'])}`;
         head.innerHTML = `
           <span class="gh-dot"></span>
           <span class="gh-text">${escapeHtml(meta.text)}</span>
@@ -836,7 +857,7 @@ async function loadRecords() {
         <div class="record-head">
           ${roomHtml}
           ${qtyHtml}
-          <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
+          <span class="badge ${statusClass(r['状态'])}">${escapeHtml(r['状态'])}</span>
           <span class="record-time">${escapeHtml(r['时间'])}</span>
         </div>
         <div class="record-body">
@@ -1246,7 +1267,7 @@ $('#add-building').addEventListener('click', async () => {
  * 相比原来的 prompt() 逐条询问：
  *   · 能一次登记一批（如"第三排 5 台都开不了机"）
  *   · 损坏数量有独立字段，统计台数才准确
- *   · 可以选择状态（未报修 / 待自修）
+ *   · 可以选择状态（未报修 / 可自修）
  *
  * @param {string} building  教学楼
  * @param {string} roomName  教室
@@ -1270,7 +1291,7 @@ function openFaultForm(building, roomName, onDone) {
       <td>
         <select class="ff-status">
           <option value="未报修">未报修（硬件，需报修）</option>
-          <option value="待自修">待自修（可自行修复）</option>
+          <option value="可自修">可自修（可自行修复）</option>
           <option value="已报修">已报修（已联系维修）</option>
           <option value="已解决">已解决</option>
         </select>
@@ -1473,30 +1494,24 @@ async function openRoomDetail(building, roomName) {
   const c = d.counts;
 
   // 三种状态的台数（都来自报修台账，不再有"手动登记"这一路）
-  const selfFix = c.self_fix || 0;          // 待自修（黄）
+  const selfFix = c.self_fix || 0;          // 可自修（黄）
   const hardBroken = (c.pending || 0) + (c.reported || 0);  // 需报修（红）
   const brokenAll = c.unresolved || 0;      // 不能用合计
   const healthy = Math.max(total - brokenAll, 0);
 
-  // 按状态给记录标颜色
-  const STATUS_CLASS = {
-    '未报修': 'pending',
-    '待自修': 'selffix',
-    '已报修': 'reported',
-    '已解决': 'resolved',
-  };
+  // 状态类名统一由全局 statusClass() 提供，避免两处定义不一致
 
   // 故障明细（含已解决的，方便编辑）
   const causeHtml = d.records.length
     ? d.records.map(r => {
         const st = r['状态'] || '未报修';
-        const done = st === '已解决';
+        const cls = statusClass(st);
         const qty = parseInt(r['数量'], 10) || 1;
         return `
-        <div class="cause-item ${done ? 'resolved' : ''}">
+        <div class="cause-item ${cls}">
           <div class="cause-top">
             <span class="cause-qty">${qty} 台</span>
-            <span class="badge ${STATUS_CLASS[st] || 'pending'}">${escapeHtml(st)}</span>
+            <span class="badge ${cls}">${escapeHtml(st)}</span>
             <span class="cause-time">${escapeHtml(r['时间'])}</span>
           </div>
           <div class="cause-text">
@@ -1507,7 +1522,7 @@ async function openRoomDetail(building, roomName) {
           <div class="cause-actions">
             ${done
               ? `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="未报修">恢复未报修</button>`
-              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="待自修">${icon('i-wrench', 13)} 改为待自修</button>
+              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="可自修">${icon('i-wrench', 13)} 改为可自修</button>
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">${icon('i-check', 13)} 标记已解决</button>`}
             <button data-edit-record="${escapeHtml(r['记录编号'])}">编辑</button>
@@ -1532,7 +1547,7 @@ async function openRoomDetail(building, roomName) {
       </div>
       <div class="detail-stat selffix">
         <div class="dv">${selfFix}</div>
-        <div class="dl">${icon('i-wrench', 13)} 待自修</div>
+        <div class="dl">${icon('i-wrench', 13)} 可自修</div>
       </div>
       <div class="detail-stat bad">
         <div class="dv">${hardBroken}</div>
@@ -1549,7 +1564,7 @@ async function openRoomDetail(building, roomName) {
       </div>
       <div class="cause-summary">
         <span>未报修 <b>${c.pending}</b></span>
-        <span class="sm-selffix">待自修 <b>${c.self_fix}</b></span>
+        <span class="sm-selffix">可自修 <b>${c.self_fix}</b></span>
         <span>已报修 <b>${c.reported}</b></span>
         <span>已解决 <b>${c.resolved}</b></span>
         <span style="margin-left:auto;color:var(--text-faint)">
@@ -1576,7 +1591,7 @@ async function openRoomDetail(building, roomName) {
     </div>
   `;
 
-  // 环形图：正常 / 待自修 / 需报修 三段
+  // 环形图：正常 / 可自修 / 需报修 三段
   roomChart = echarts.init($('#room-chart'));
   roomChart.setOption({
     textStyle: { color: '#8b98a5' },
@@ -1590,7 +1605,7 @@ async function openRoomDetail(building, roomName) {
       label: { show: false },
       data: [
         { value: healthy, name: '正常', itemStyle: { color: '#22c55e' } },
-        { value: selfFix, name: '待自修', itemStyle: { color: '#eab308' } },
+        { value: selfFix, name: '可自修', itemStyle: { color: '#eab308' } },
         { value: hardBroken, name: '需报修', itemStyle: { color: '#ef4444' } },
       ].filter(x => x.value > 0),
     }],

@@ -27,15 +27,19 @@ FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊�
 #
 # 三种状态对应设备的三种处境：
 #   未报修  —— 硬件故障，需要报修，自己修不了（红）
-#   待自修  —— 非硬件问题，可自行修复（黄）
+#   可自修  —— 非硬件问题，可自行修复（黄）
 #   已报修  —— 已联系维修，等待处理（橙）
 #   已解决  —— 已完结（绿）
 STATUS_PENDING = '未报修'
-STATUS_SELF_FIX = '待自修'
+STATUS_SELF_FIX = '可自修'
 STATUS_REPORTED = '已报修'
 STATUS_RESOLVED = '已解决'
 
 ALL_STATUS = [STATUS_PENDING, STATUS_SELF_FIX, STATUS_REPORTED, STATUS_RESOLVED]
+
+# 历史状态名（已改名，读取时自动归一）
+# 「待自修」→「可自修」：旧值仍可能存在于历史 CSV 中
+LEGACY_STATUS_SELF_FIX = '待自修'
 
 # 「未解决」= 设备当前还不能正常使用
 UNRESOLVED_STATUS = [STATUS_PENDING, STATUS_SELF_FIX, STATUS_REPORTED]
@@ -101,6 +105,13 @@ def load_records():
     for r in rows:
         for field in FIELDS:
             r.setdefault(field, '')
+
+        # 状态值迁移：早期版本叫「待自修」，后改名为「可自修」。
+        # 旧文件里的值要就地归一，否则读出来的状态不在 ALL_STATUS 里，
+        # 会落到"未知状态"分支、排序和统计都会漏掉。
+        if r.get('状态') == LEGACY_STATUS_SELF_FIX:
+            r['状态'] = STATUS_SELF_FIX
+
     return rows
 
 
@@ -296,7 +307,7 @@ def delete_record(record_id):
 #   越需要处理的状态排越前，已完成的沉到底部
 STATUS_ORDER = {
     STATUS_PENDING: 0,     # 未报修  —— 需要报修，最紧急
-    STATUS_SELF_FIX: 1,    # 待自修  —— 可自行处理，稍缓
+    STATUS_SELF_FIX: 1,    # 可自修  —— 可自行处理，稍缓
     STATUS_REPORTED: 2,    # 已报修  —— 等维修
     STATUS_RESOLVED: 3,    # 已解决  —— 已完结
 }
@@ -309,7 +320,7 @@ def sort_records(records, by='priority'):
     参数：
       records - 记录列表
       by      - 排序方式
-                'priority' 按状态分级（默认）：未报修 → 待自修 → 已报修 → 已解决
+                'priority' 按状态分级（默认）：未报修 → 可自修 → 已报修 → 已解决
                            同状态内按时间倒序（最新的在前）
                 'time'     纯按时间倒序
 

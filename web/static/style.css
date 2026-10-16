@@ -1060,17 +1060,19 @@ main { flex: 1; overflow: hidden; position: relative; }
   border-radius: 50%;
   flex-shrink: 0;
 }
-.group-head.未报修 .gh-dot { background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,0.6); }
-.group-head.已报修 .gh-dot { background: var(--amber); box-shadow: 0 0 10px rgba(245,158,11,0.6); }
-.group-head.已解决 .gh-dot { background: var(--green); box-shadow: 0 0 10px rgba(34,197,94,0.6); }
+.group-head.st-pending .gh-dot { background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,0.6); }
+.group-head.st-selffix .gh-dot { background: #eab308; box-shadow: 0 0 10px rgba(234,179,8,0.6); }
+.group-head.st-reported .gh-dot { background: var(--amber); box-shadow: 0 0 10px rgba(245,158,11,0.6); }
+.group-head.st-resolved .gh-dot { background: var(--green); box-shadow: 0 0 10px rgba(34,197,94,0.6); }
 
 .gh-text {
   font-size: 14.5px;
   font-weight: 600;
 }
-.group-head.未报修 .gh-text { color: #f87171; }
-.group-head.已报修 .gh-text { color: #fbbf24; }
-.group-head.已解决 .gh-text { color: #4ade80; }
+.group-head.st-pending .gh-text { color: #f87171; }
+.group-head.st-selffix .gh-text { color: #eab308; }
+.group-head.st-reported .gh-text { color: #fbbf24; }
+.group-head.st-resolved .gh-text { color: #4ade80; }
 
 .gh-desc {
   font-size: 12px;
@@ -1158,15 +1160,19 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .record-time { color: var(--text-faint); font-size: 12px; margin-left: auto; }
 
+/* -------- 状态徽章 --------
+   用英文类名（st-*），避免中文选择器在不同环境下出现编码问题。
+   四处状态配色必须与「故障条目左边框」「统计卡」保持一致。 */
 .badge {
   padding: 3px 12px;
   border-radius: 100px;
   font-size: 12px;
   font-weight: 500;
 }
-.badge.未报修 { background: rgba(239,68,68,0.14); color: #f87171; }
-.badge.已报修 { background: rgba(245,158,11,0.14); color: #fbbf24; }
-.badge.已解决 { background: rgba(34,197,94,0.14); color: #4ade80; }
+.badge.st-pending  { background: rgba(239,68,68,0.14); color: #f87171; }
+.badge.st-selffix  { background: rgba(234,179,8,0.16); color: #eab308; }
+.badge.st-reported { background: rgba(245,158,11,0.14); color: #fbbf24; }
+.badge.st-resolved { background: rgba(34,197,94,0.14); color: #4ade80; }
 
 .record-body { font-size: 14px; color: var(--text-dim); }
 .record-body .label { color: var(--text-faint); }
@@ -1742,16 +1748,13 @@ main { flex: 1; overflow: hidden; position: relative; }
 .detail-stat.ok .dv { color: #4ade80; }
 .detail-stat.bad .dv { color: #f87171; }
 .detail-stat.tot .dv { color: #93c5fd; }
-/* 待自修：黄色，表示非硬件问题、可自行修复 */
+/* 可自修：黄色，表示非硬件问题、可自行修复 */
 .detail-stat.selffix .dv { color: #eab308; }
 
-/* 四格状态：总数 / 正常 / 待自修 / 需报修 */
+/* 四格状态：总数 / 正常 / 可自修 / 需报修 */
 .detail-stats-4 {
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
-
-/* 状态徽章：待自修用黄色 */
-.badge.待自修 { background: rgba(234,179,8,0.16); color: #eab308; }
 
 /* 数量标签：一条记录代表多台设备时显示 */
 .qty-tag {
@@ -2006,26 +2009,35 @@ select option:hover {
 }
 .cause-head h5 { margin-bottom: 0; }
 
-/* 已解决的记录淡化 */
-.cause-item.resolved {
-  border-left-color: var(--green);
-  background: rgba(34,197,94,0.05);
-  opacity: 0.78;
-}
-.cause-item.resolved .cause-text { color: var(--text-faint); }
+/* -------- 故障条目 --------
+   左边框颜色按状态区分，便于一眼扫出哪些还需要处理：
+     未报修 红 / 可自修 黄 / 已报修 橙 / 已解决 绿
 
-.cause-actions button.del-btn:hover {
-  color: #f87171;
-  border-color: rgba(239,68,68,0.35);
-  background: rgba(239,68,68,0.1);
-}
-
+   注意：这里以前写死成红色，导致「已报修」的记录看起来也像「未报修」，
+   状态只能靠右侧的小徽章区分，扫视时很容易误判。 */
 .cause-item {
   background: rgba(255,255,255,0.032);
   border: 1px solid var(--border);
   border-left: 3px solid var(--red);
   border-radius: 10px;
   padding: 12px 14px;
+}
+.cause-item.st-pending  { border-left-color: var(--red); }
+.cause-item.st-selffix  { border-left-color: #eab308; }
+.cause-item.st-reported { border-left-color: var(--amber); }
+
+/* 已解决的记录淡化，视觉上"沉下去" */
+.cause-item.st-resolved {
+  border-left-color: var(--green);
+  background: rgba(34,197,94,0.05);
+  opacity: 0.78;
+}
+.cause-item.st-resolved .cause-text { color: var(--text-faint); }
+
+.cause-actions button.del-btn:hover {
+  color: #f87171;
+  border-color: rgba(239,68,68,0.35);
+  background: rgba(239,68,68,0.1);
 }
 
 .cause-top {

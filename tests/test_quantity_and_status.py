@@ -1,10 +1,10 @@
 """
-新增功能测试：损坏数量、待自修状态、批量登记
+新增功能测试：损坏数量、可自修状态、批量登记
 
 对应需求：
   1. AI 确定原因后追问损坏数量
   2. 一条记录可代表多台设备（数量字段）
-  3. 新增「待自修」状态（非硬件问题、可自行修复）
+  3. 新增「可自修」状态（非硬件问题、可自行修复）
   4. 「登记故障」表单可一次填多行
   5. 删除「手动登记损坏数」（台数只从报修台账推导）
 """
@@ -48,12 +48,29 @@ class TestParseQuantity:
 class TestStatusConstants:
 
     def test_four_statuses(self):
-        assert repair_log.ALL_STATUS == ['未报修', '待自修', '已报修', '已解决']
+        assert repair_log.ALL_STATUS == ['未报修', '可自修', '已报修', '已解决']
 
     def test_unresolved_includes_self_fix(self):
-        """待自修也算"不能用" —— 自修完成前设备仍不可用"""
+        """可自修也算"不能用" —— 自修完成前设备仍不可用"""
         assert repair_log.STATUS_SELF_FIX in repair_log.UNRESOLVED_STATUS
         assert repair_log.STATUS_RESOLVED not in repair_log.UNRESOLVED_STATUS
+
+    def test_legacy_status_is_migrated(self, tmp_data):
+        """
+        旧状态名「待自修」读取时自动归一为「可自修」
+
+        历史 CSV 里可能存着旧值。若不归一，读出的状态不在 ALL_STATUS 中，
+        会落到"未知状态"分支：排序排到最后、统计里也不计入。
+        """
+        old = '记录编号,时间,教学楼,教室,故障现象,诊断结论,状态,数量,备注\n'
+        old += 'R001,2026-10-15 10:00,教学楼A,A101,网线松,原因：x,待自修,2,\n'
+        with open(repair_log.RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+            f.write(old)
+
+        rec = repair_log.load_records()[0]
+        assert rec['状态'] == '可自修'
+        assert rec['状态'] in repair_log.ALL_STATUS
+        assert repair_log.get_quantity(rec) == 2
 
 
 # ---------------- 数量字段 ----------------
@@ -186,7 +203,7 @@ class TestRegisterFaults:
     def test_register_multiple(self, tmp_data):
         n, ids, err = repair_log.register_faults('教学楼A', 'A101', [
             {'reason': '电源损坏', 'quantity': 3},
-            {'reason': '网线松动', 'quantity': 1, 'status': '待自修'},
+            {'reason': '网线松动', 'quantity': 1, 'status': '可自修'},
         ])
         assert err == ''
         assert n == 2
@@ -195,7 +212,7 @@ class TestRegisterFaults:
         recs = repair_log.load_records()
         assert len(recs) == 2
         assert repair_log.get_quantity(recs[0]) == 3
-        assert recs[1]['状态'] == '待自修'
+        assert recs[1]['状态'] == '可自修'
 
     def test_skips_empty_reason(self, tmp_data):
         n, ids, err = repair_log.register_faults('教学楼A', 'A101', [
@@ -277,13 +294,13 @@ class TestStatusSortOrder:
     def test_order(self, tmp_data):
         repair_log.add_record('A101', 'a', 'x', status='已解决')
         repair_log.add_record('A101', 'b', 'x', status='已报修')
-        repair_log.add_record('A101', 'c', 'x', status='待自修')
+        repair_log.add_record('A101', 'c', 'x', status='可自修')
         repair_log.add_record('A101', 'd', 'x', status='未报修')
 
         ordered = [r['记录编号'] for r in
                    repair_log.sort_records(repair_log.load_records())]
         recs = {r['记录编号']: r['状态'] for r in repair_log.load_records()}
-        assert [recs[i] for i in ordered] == ['未报修', '待自修', '已报修', '已解决']
+        assert [recs[i] for i in ordered] == ['未报修', '可自修', '已报修', '已解决']
 
 
 # ---------------- 会话状态判定 ----------------

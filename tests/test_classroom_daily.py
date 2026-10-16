@@ -103,7 +103,7 @@ class TestClassroom:
         assert s['healthy_pcs'] == 57
 
     def test_summary_three_states(self, tmp_data):
-        """待自修要单独统计出来"""
+        """可自修要单独统计出来"""
         import repair_log
 
         classroom.add_building('教学楼A')
@@ -118,7 +118,7 @@ class TestClassroom:
 
         s = classroom.summary()
         assert s['self_fix_pcs'] == 2
-        assert s['broken_pcs'] == 3       # 待自修也算不能用
+        assert s['broken_pcs'] == 3       # 可自修也算不能用
         assert s['healthy_pcs'] == 57
 
     def test_healthy_never_negative(self, tmp_data):

@@ -108,11 +108,11 @@ def _status_for_session(ds):
 
     判定顺序很重要：
       1. 明确要求报修 → 未报修（硬件问题，等维修）
-      2. 明确可以自修 → 待自修（非硬件问题，自己能处理）
+      2. 明确可以自修 → 可自修（非硬件问题，自己能处理）
       3. 两者都没有（AI 没打标记）→ 未报修
 
     为什么默认落在「未报修」：
-      漏报修会让故障被遗忘；而"待自修"若判断错了，
+      漏报修会让故障被遗忘；而"可自修"若判断错了，
       用户仍可在界面上改状态。保守优先。
     """
     if ds.need_repair:
@@ -203,7 +203,7 @@ def api_chat():
         }
 
         # 诊断结束 → 写入台账
-        # 需要报修的记为「未报修」，可自修的记为「待自修」
+        # 需要报修的记为「未报修」，可自修的记为「可自修」
         if finished:
             status = _status_for_session(ds)
             rid = repair_log.add_record(
@@ -310,7 +310,7 @@ def api_chat_stream():
                     payload['record_id'] = None
 
                     # 诊断结束 → 写入台账
-                    # 需要报修的记为「未报修」，可自修的记为「待自修」
+                    # 需要报修的记为「未报修」，可自修的记为「可自修」
                     if payload.get('finished'):
                         status = _status_for_session(ds)
                         rid = repair_log.add_record(

@@ -202,7 +202,7 @@ def _room_status_counts():
     """
     从报修台账统计每间教室各状态的机器台数
 
-    返回：{"教学楼|教室": {'未报修': n, '待自修': n, '已报修': n, '已解决': n}}
+    返回：{"教学楼|教室": {'未报修': n, '可自修': n, '已报修': n, '已解决': n}}
 
     说明：
       · 按「数量」字段累加台数，而不是数记录条数
@@ -241,7 +241,7 @@ def _count_unresolved_by_room():
     """
     每间教室「不能用」的机器台数
 
-    「不能用」= 未报修 + 待自修 + 已报修（即尚未解决的）
+    「不能用」= 未报修 + 可自修 + 已报修（即尚未解决的）
     已解决的机器算修好了，不计入。
     """
     counts = {}
@@ -267,7 +267,7 @@ def summary():
 
     设备分三种状态：
       正常    —— 台账总数 - 不能用台数
-      待自修  —— 非硬件问题，可自行修复（黄色）
+      可自修  —— 非硬件问题，可自行修复（黄色）
       不能用  —— 需要报修 / 等待维修（硬件故障）
 
     台数的唯一来源是报修台账，教室台账不再单独存"损坏数"，
@@ -288,7 +288,7 @@ def summary():
             total_pcs += r.get('total', 0)
 
             by_status = status_map.get(f"{b['name']}|{r['name']}", {})
-            self_fix = by_status.get('待自修', 0)
+            self_fix = by_status.get('可自修', 0)
             broken = sum(v for s, v in by_status.items() if s != '已解决')
 
             total_self_fix += self_fix
@@ -309,8 +309,8 @@ def flat_rooms():
     把两级结构拍平
 
     每间教室给出三种状态的台数：
-      self_fix_pcs —— 待自修（黄色）
-      broken_pcs   —— 不能用（含待自修，因为自修前也用不了）
+      self_fix_pcs —— 可自修（黄色）
+      broken_pcs   —— 不能用（含可自修，因为自修前也用不了）
       healthy_pcs  —— 正常
     """
     data = load()
@@ -324,7 +324,7 @@ def flat_rooms():
 
             total = r.get('total', 0)
             pending = by_status.get('未报修', 0)
-            self_fix = by_status.get('待自修', 0)
+            self_fix = by_status.get('可自修', 0)
             reported = by_status.get('已报修', 0)
             resolved = by_status.get('已解决', 0)
 
@@ -378,7 +378,7 @@ def buildings_with_stats():
 
             total = r.get('total', 0)
             pending = by_status.get('未报修', 0)
-            self_fix = by_status.get('待自修', 0)
+            self_fix = by_status.get('可自修', 0)
             reported = by_status.get('已报修', 0)
             resolved = by_status.get('已解决', 0)
             broken = pending + self_fix + reported
