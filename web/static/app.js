@@ -44,8 +44,9 @@ function enterApp(view) {
     landingEl.classList.add('hidden');
     appEl.classList.remove('hidden');
     switchView(view || 'chat');
-    // 元素此时才可见，offsetWidth 才有值
-    requestAnimationFrame(() => movePillIndicator());
+    // 进入应用时侧边栏保持收起，鼠标靠近右侧再展开
+    collapseRail();
+    refreshRailStats();
   }, 380);
 }
 
@@ -65,8 +66,56 @@ document.querySelectorAll('.entry-card').forEach(card => {
   card.addEventListener('click', () => enterApp(card.dataset.goto));
 });
 
-// 点击 Logo 返回首页
-$('#brand-home').addEventListener('click', backToLanding);
+// 侧边栏顶部按钮：返回首页
+$('#rail-home').addEventListener('click', backToLanding);
+
+/* ============================================================
+   右侧伸缩侧边栏
+
+   收起时只显示图标；鼠标靠近右侧热区、或悬停在栏上时展开。
+   移开后延迟收起 —— 避免鼠标掠过时频繁弹动。
+   ============================================================ */
+const railEl = $('#rail');
+
+/* 收起延迟（毫秒）
+   留一点缓冲，鼠标从栏上划向内容区时不会立刻缩回去 */
+const RAIL_HIDE_DELAY = 260;
+
+let railHideTimer = null;
+
+function expandRail() {
+  if (railHideTimer) {
+    clearTimeout(railHideTimer);
+    railHideTimer = null;
+  }
+  railEl.classList.add('expanded');
+}
+
+function collapseRail() {
+  railEl.classList.remove('expanded');
+}
+
+function scheduleCollapseRail() {
+  if (railHideTimer) clearTimeout(railHideTimer);
+  railHideTimer = setTimeout(() => {
+    railHideTimer = null;
+    collapseRail();
+  }, RAIL_HIDE_DELAY);
+}
+
+// 鼠标靠近右侧边缘 → 展开
+const railHotzone = $('#rail-hotzone');
+if (railHotzone) {
+  railHotzone.addEventListener('pointerenter', expandRail);
+}
+
+// 悬停在侧边栏上 → 保持展开；移开 → 延迟收起
+railEl.addEventListener('pointerenter', expandRail);
+railEl.addEventListener('pointerleave', scheduleCollapseRail);
+
+// 键盘可达性：Tab 聚焦到侧边栏内的按钮时也展开
+railEl.addEventListener('focusin', expandRail);
+railEl.addEventListener('focusout', scheduleCollapseRail);
 
 /* ============================================================
    视图切换
@@ -74,12 +123,10 @@ $('#brand-home').addEventListener('click', backToLanding);
 function switchView(view) {
   currentView = view;
 
-  document.querySelectorAll('.pill-item').forEach(t => {
+  // 侧边栏导航项高亮
+  document.querySelectorAll('.rail-item[data-view]').forEach(t => {
     t.classList.toggle('active', t.dataset.view === view);
   });
-
-  // 滑动指示器跟随
-  movePillIndicator();
 
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const target = $('#view-' + view);
@@ -92,137 +139,55 @@ function switchView(view) {
     const inp = $('#input');
     if (inp) setTimeout(() => inp.focus(), 100);
   }
-  updateDrawer();
+  refreshRailStats();
 }
 
-/**
- * 把指示器移动到当前选中项的位置和宽度
- */
-function movePillIndicator() {
-  const track = $('#pill-track');
-  const indicator = $('#pill-indicator');
-  if (!track || !indicator) return;
-
-  const active = track.querySelector('.pill-item.active');
-  if (!active) return;
-
-  // 首次调用时禁用过渡，避免从初始位置滑入
-  const first = indicator.dataset.init !== '1';
-
-  indicator.style.width = active.offsetWidth + 'px';
-  indicator.style.transform = `translateX(${active.offsetLeft - 5}px)`;
-
-  if (first) {
-    indicator.style.transition = 'none';
-    indicator.dataset.init = '1';
-    requestAnimationFrame(() => {
-      indicator.style.transition = '';
-    });
-  }
-}
-
-document.querySelectorAll('.pill-item').forEach(item => {
+// 侧边栏导航点击
+document.querySelectorAll('.rail-item[data-view]').forEach(item => {
   item.addEventListener('click', () => switchView(item.dataset.view));
 });
 
-// 窗口尺寸变化时重新定位指示器
-window.addEventListener('resize', () => movePillIndicator());
-
 /* ============================================================
-   右侧抽屉
-   ============================================================ */
-const drawerEl = $('#drawer');
-const handleEl = $('#drawer-handle');
-// 遮罩直接使用 HTML 中定义的元素（它在 #app 内部，与 .drawer 同层叠上下文）
-const maskEl = $('#drawer-mask');
-
-function openDrawer() {
-  drawerEl.classList.add('open');
-  maskEl.classList.add('show');
-  document.body.classList.add('drawer-open');
-  updateDrawer();
-}
-function closeDrawer() {
-  drawerEl.classList.remove('open');
-  maskEl.classList.remove('show');
-  document.body.classList.remove('drawer-open');
-}
-
-handleEl.addEventListener('click', () => {
-  drawerEl.classList.contains('open') ? closeDrawer() : openDrawer();
-});
-$('#drawer-close').addEventListener('click', closeDrawer);
-maskEl.addEventListener('click', closeDrawer);
-
-// 抽屉内快捷按钮
-document.querySelectorAll('.drawer-btn[data-goto]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    switchView(btn.dataset.goto);
-    closeDrawer();
-  });
-});
-$('#d-reset').addEventListener('click', () => {
-  closeDrawer();
-  resetSession();
-});
-
-// ESC 关闭抽屉
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeDrawer();
-});
-
-/* ============================================================
-   抽屉内容更新
+   侧边栏数据更新
    ============================================================ */
 let sessionRounds = 0;
-
-function updateDrawer() {
-  loadRecentRecords();
-  refreshDrawerStats();
-}
-
 let currentClassroom = '';
 let sessionState = '待开始';
 
-async function loadRecentRecords() {
-  const box = $('#d-recent');
+/**
+ * 侧边栏上的角标与统计
+ *
+ * 上报「待处理」数量：未报修 + 待自修 + 已报修。
+ * 收起状态下角标会缩成一个小红点，展开时显示具体数字。
+ */
+async function refreshRailStats() {
+  let pending = 0;
+
   try {
     const res = await fetch('/api/records');
-    const data = await res.json();
-    if (data.error || !data.records.length) {
-      box.innerHTML = '<div class="recent-empty">暂无记录</div>';
-      return;
-    }
+    const d = await res.json();
+    const records = d.records || [];
+    pending = records.filter(r => r['状态'] !== '已解决')
+                     .reduce((n, r) => n + (parseInt(r['数量'], 10) || 1), 0);
+  } catch { /* 忽略，角标保持原样 */ }
 
-    const statusClass = { '未报修': 'pending', '待自修': 'selffix',
-                          '已报修': 'reported', '已解决': 'resolved' };
-
-    // 用「教学楼 · 教室」代替记录编号；缺教学楼时只显示教室号
-    const where = (r) => {
-      const b = (r['教学楼'] || '').trim();
-      const room = (r['教室'] || '').trim();
-      if (b && b !== '未标注教学楼' && room && room !== '未填写') {
-        return `${b} · ${room}`;
-      }
-      if (room && room !== '未填写') return room;
-      return '教室未填写';
-    };
-
-    box.innerHTML = data.records.slice(0, 5).map(r => {
-      const qty = parseInt(r['数量'], 10) || 1;
-      return `
-      <div class="recent-item ${statusClass[r['状态']] || ''}">
-        <div class="ri-top">
-          <span class="ri-where">${escapeHtml(where(r))}</span>
-          ${qty > 1 ? `<span class="ri-qty">${qty} 台</span>` : ''}
-          <span class="ri-status">${escapeHtml(r['状态'])}</span>
-        </div>
-        <div class="ri-sym">${escapeHtml(r['故障现象'])}</div>
-      </div>`;
-    }).join('');
-  } catch {
-    box.innerHTML = '<div class="recent-empty">读取失败</div>';
+  const badge = $('#rail-badge-records');
+  if (badge) {
+    badge.textContent = pending > 99 ? '99+' : pending;
+    badge.classList.toggle('show', pending > 0);
   }
+
+  try {
+    const res = await fetch('/api/classrooms/summary');
+    const s = await res.json();
+    const set = (id, v) => {
+      const el = $(id);
+      if (el) el.textContent = (v ?? '—');
+    };
+    set('#d-rooms', s.rooms);
+    set('#d-pcs', s.total_pcs);
+    set('#d-broken', s.broken_pcs);
+  } catch { /* 忽略 */ }
 }
 
 /* ============================================================
@@ -454,8 +419,7 @@ async function sendMessage() {
             note.textContent =
               `已记入报修台账（编号 ${evt.record_id}，教室 ${evt.classroom || '未填写'}），可在「报修记录」中跟踪处理进度。`;
             body.parentNode.appendChild(note);
-            loadRecentRecords();
-          }
+                      }
 
           // 知识库沉淀提示（体现"越用越聪明"）
           if (evt.finished && evt.case_saved) {
@@ -469,14 +433,14 @@ async function sendMessage() {
           sessionRounds++;
           if (evt.classroom) currentClassroom = evt.classroom;
           sessionState = evt.finished ? '已完成' : '排查中';
-          updateDrawer();
+          refreshRailStats();
 
           if (evt.finished) {
             setTimeout(() => {
               sessionRounds = 0;
               currentClassroom = '';
               sessionState = '待开始';
-              updateDrawer();
+              refreshRailStats();
               // 清空教室选择，准备下一次诊断
               pickedBuilding = '';
               pickedRoom = '';
@@ -541,7 +505,7 @@ async function resetSession() {
     sessionRounds = 0;
     currentClassroom = '';
     sessionState = '待开始';
-    updateDrawer();
+    refreshRailStats();
   } catch (err) {
     addTurn('重置失败：' + err.message, 'bot');
   }
@@ -928,7 +892,7 @@ async function loadRecords() {
         if (!confirm(`确定删除记录 ${rid}？此操作不可撤销。`)) return;
         await fetch('/api/records/' + encodeURIComponent(rid), { method: 'DELETE' });
         loadRecords();
-        refreshDrawerStats();
+        refreshRailStats();
       });
     });
 
@@ -1133,7 +1097,7 @@ function showRoomView() {
 
 $('#back-to-list').addEventListener('click', () => {
   showListView();
-  refreshDrawerStats();
+  refreshRailStats();
 });
 
 // ---------- 加载教室列表 ----------
@@ -1217,7 +1181,7 @@ function bindListEvents() {
       if (!confirm(`确定删除教学楼「${name}」及其下全部教室？`)) return;
       await fetch('/api/classrooms/building/' + encodeURIComponent(name), { method: 'DELETE' });
       loadClassrooms();
-      refreshDrawerStats();
+      refreshRailStats();
     });
   });
 
@@ -1242,7 +1206,7 @@ function bindListEvents() {
       const d = await res.json();
       if (!d.ok) { alert(d.message); return; }
       loadClassrooms();
-      refreshDrawerStats();
+      refreshRailStats();
     });
   });
 
@@ -1270,7 +1234,7 @@ $('#add-building').addEventListener('click', async () => {
 
   input.value = '';
   loadClassrooms();
-  refreshDrawerStats();
+  refreshRailStats();
 });
 
 // ---------- 教室详情 ----------
@@ -1643,7 +1607,7 @@ async function openRoomDetail(building, roomName) {
       });
       // 重新加载本页 + 刷新抽屉与列表
       openRoomDetail(building, roomName);
-      refreshDrawerStats();
+      refreshRailStats();
       if (classroomCache) loadClassrooms();
     });
   });
@@ -1668,7 +1632,7 @@ async function openRoomDetail(building, roomName) {
         body: JSON.stringify({ symptom, conclusion, note }),
       });
       openRoomDetail(building, roomName);
-      refreshDrawerStats();
+      refreshRailStats();
     });
   });
 
@@ -1680,7 +1644,7 @@ async function openRoomDetail(building, roomName) {
         method: 'DELETE',
       });
       openRoomDetail(building, roomName);
-      refreshDrawerStats();
+      refreshRailStats();
       if (classroomCache) loadClassrooms();
     });
   });
@@ -1689,7 +1653,7 @@ async function openRoomDetail(building, roomName) {
   $('#add-record').addEventListener('click', () => {
     openFaultForm(building, roomName, () => {
       openRoomDetail(building, roomName);
-      refreshDrawerStats();
+      refreshRailStats();
       if (classroomCache) loadClassrooms();
     });
   });
@@ -1709,7 +1673,7 @@ async function openRoomDetail(building, roomName) {
     const d2 = await res2.json();
     if (!d2.ok) { alert(d2.message); return; }
     openRoomDetail(building, roomName);
-    refreshDrawerStats();
+    refreshRailStats();
     loadClassrooms();
   });
 
@@ -1723,20 +1687,8 @@ async function openRoomDetail(building, roomName) {
     });
     showListView();
     loadClassrooms();
-    refreshDrawerStats();
+    refreshRailStats();
   });
-}
-
-// ---------- 更新抽屉里的设备总览 ----------
-async function refreshDrawerStats() {
-  try {
-    const res = await fetch('/api/classrooms/summary');
-    const s = await res.json();
-    $('#d-buildings').textContent = s.buildings ?? '—';
-    $('#d-rooms').textContent = s.rooms ?? '—';
-    $('#d-pcs').textContent = s.total_pcs ?? '—';
-    $('#d-broken').textContent = s.broken_pcs ?? '—';
-  } catch { /* 忽略 */ }
 }
 
 /* ============================================================

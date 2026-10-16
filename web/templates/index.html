@@ -256,64 +256,6 @@
 <!-- ========== 主应用 ========== -->
 <div id="app" class="app hidden">
 
-  <!-- 顶部品牌栏 -->
-  <header class="topbar">
-    <div class="brand" id="brand-home" title="返回首页">
-      <span class="logo">
-        <svg class="icon" width="20" height="20"><use href="#i-tool"/></svg>
-      </span>
-      <div>
-        <h1>机房故障智能诊断助手</h1>
-        <p class="sub">对话式排查 · AI 驱动 · 自动记录</p>
-      </div>
-    </div>
-  </header>
-
-  <!-- 胶囊导航（常驻顶部，带滑动指示器） -->
-  <nav class="pill-bar">
-    <div class="pill-track" id="pill-track">
-      <span class="pill-indicator" id="pill-indicator"></span>
-
-      <button class="pill-item active" data-view="chat">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-        </svg>
-        <span>诊断</span>
-      </button>
-
-      <button class="pill-item" data-view="records">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="8" y1="13" x2="16" y2="13"/>
-          <line x1="8" y1="17" x2="13" y2="17"/>
-        </svg>
-        <span>报修记录</span>
-      </button>
-
-      <button class="pill-item" data-view="stats">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="20" x2="18" y2="10"/>
-          <line x1="12" y1="20" x2="12" y2="4"/>
-          <line x1="6" y1="20" x2="6" y2="14"/>
-        </svg>
-        <span>数据看板</span>
-      </button>
-
-      <button class="pill-item" data-view="tasks">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 11l3 3L22 4"/>
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-        </svg>
-        <span>日常报备</span>
-      </button>
-    </div>
-  </nav>
-
   <main>
 
     <!-- ========== 诊断视图 ========== -->
@@ -521,68 +463,106 @@
 
   </main>
 
-  <!-- ========== 右侧可拉出状态栏 ========== -->
-  <!-- 遮罩放在 #app 内部，与 .drawer 处于同一层叠上下文，避免侧栏被压暗 -->
-  <div id="drawer-mask" class="drawer-mask"></div>
+  <!-- ============================================================
+       右侧伸缩侧边栏
 
-  <div id="drawer-handle" class="drawer-handle" title="展开状态栏">
-    <span class="handle-arrow">‹</span>
-    <span class="handle-text">状态</span>
-  </div>
+       收起时只显示图标（一条窄栏），鼠标靠近自动展开显示文字。
+       原来的「顶部胶囊导航 + 右侧抽屉」已合并到这里：
+         · 主导航（诊断 / 报修记录 / 数据看板 / 日常报备）
+         · 设备总览（展开时显示）
+         · 教室与设备管理入口
+         · 返回首页
 
-  <aside id="drawer" class="drawer">
-    <div class="drawer-head">
-      <h3>实时状态</h3>
-      <button id="drawer-close" class="drawer-close" title="收起">
-      <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+       触发展开的方式：
+         · 鼠标靠近屏幕右侧边缘（热区）
+         · 鼠标悬停在侧边栏上
+       移开后延迟收起，避免掠过时频繁弹动。
+       ============================================================ -->
+  <div id="rail-hotzone" class="rail-hotzone" aria-hidden="true"></div>
+
+  <aside id="rail" class="rail" aria-label="主导航">
+
+    <!-- 顶部：标识 + 返回首页 -->
+    <button class="rail-brand" id="rail-home" title="返回首页">
+      <span class="rail-icon">
+        <svg class="icon" width="20" height="20"><use href="#i-tool"/></svg>
+      </span>
+      <span class="rail-text">
+        <b>诊断助手</b>
+        <i>返回首页</i>
+      </span>
     </button>
-    </div>
 
-    <div class="drawer-section">
-      <h4>设备总览</h4>
-      <div class="status-line">
-        <span class="status-key">教学楼</span>
-        <span class="status-val" id="d-buildings">—</span>
-      </div>
-      <div class="status-line">
-        <span class="status-key">教室总数</span>
-        <span class="status-val" id="d-rooms">—</span>
-      </div>
-      <div class="status-line">
-        <span class="status-key">电脑总数</span>
-        <span class="status-val" id="d-pcs">—</span>
-      </div>
-      <div class="status-line">
-        <span class="status-key">损坏电脑</span>
-        <span class="status-val" id="d-broken" style="color:#f87171">—</span>
-      </div>
-    </div>
+    <div class="rail-sep"></div>
 
-    <div class="drawer-section">
-      <h4>最近记录</h4>
-      <div id="d-recent" class="recent-list">
-        <div class="recent-empty">暂无记录</div>
-      </div>
-    </div>
-
-    <div class="drawer-section">
-      <h4>快捷操作</h4>
-      <button class="drawer-btn" data-goto="records">查看全部记录</button>
-      <button class="drawer-btn" data-goto="stats">打开数据看板</button>
-      <button class="drawer-btn drawer-btn-ghost" id="d-reset">重新开始诊断</button>
-    </div>
-
-    <!-- 后台管理入口（齿轮） -->
-    <div class="drawer-foot">
-      <button class="gear-btn" id="gear-btn" title="教室与设备管理">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span>教室与设备管理</span>
+    <!-- 主导航 -->
+    <nav class="rail-nav">
+      <button class="rail-item active" data-view="chat" title="诊断">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-chat"/></svg>
+        </span>
+        <span class="rail-text">诊断</span>
       </button>
+
+      <button class="rail-item" data-view="records" title="报修记录">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-list"/></svg>
+        </span>
+        <span class="rail-text">报修记录</span>
+        <span class="rail-badge" id="rail-badge-records"></span>
+      </button>
+
+      <button class="rail-item" data-view="stats" title="数据看板">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-chart"/></svg>
+        </span>
+        <span class="rail-text">数据看板</span>
+      </button>
+
+      <button class="rail-item" data-view="tasks" title="日常报备">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-task"/></svg>
+        </span>
+        <span class="rail-text">日常报备</span>
+      </button>
+    </nav>
+
+    <div class="rail-sep"></div>
+
+    <!-- 设备总览（展开时才显示数字，收起时只留一个图标） -->
+    <div class="rail-summary">
+      <div class="rail-summary-head">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-monitor"/></svg>
+        </span>
+        <span class="rail-text">设备总览</span>
+      </div>
+      <div class="rail-stat-rows">
+        <div class="rail-stat">
+          <span class="rk">教室</span>
+          <span class="rv" id="d-rooms">—</span>
+        </div>
+        <div class="rail-stat">
+          <span class="rk">电脑</span>
+          <span class="rv" id="d-pcs">—</span>
+        </div>
+        <div class="rail-stat">
+          <span class="rk">待修</span>
+          <span class="rv rv-warn" id="d-broken">—</span>
+        </div>
+      </div>
     </div>
+
+    <div class="rail-spacer"></div>
+
+    <!-- 底部：管理入口 -->
+    <button class="rail-item rail-gear" id="gear-btn" title="教室与设备管理">
+      <span class="rail-icon">
+        <svg class="icon" width="20" height="20"><use href="#i-building"/></svg>
+      </span>
+      <span class="rail-text">教室管理</span>
+    </button>
+
   </aside>
 
   <!-- ========== 后台管理弹窗 ========== -->
