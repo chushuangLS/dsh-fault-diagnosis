@@ -142,6 +142,27 @@ const RAIL_POS_KEY = 'rail-position';
 /** 超出这个位移才算拖动（兜住按下瞬间的手抖） */
 const RAIL_MOVE_TOLERANCE = 3;
 
+/**
+ * 决定展开方向：永远朝屏幕内侧生长
+ *
+ * 原因：侧边栏可以拖到任意位置，如果展开方向固定，
+ *       靠左时向左长、靠右时向右长，都会冲出屏幕。
+ *
+ * 判定规则（按栏的中心点落在哪半屏）：
+ *   中心在右半屏 → grow-left   固定右边，向左生长
+ *   中心在左半屏 → grow-right  固定左边，向右生长
+ *
+ * 注意要在**收起状态**下测量，否则拿到的宽度是展开后的。
+ */
+function updateRailGrowDir() {
+  const r = railEl.getBoundingClientRect();
+  const centerX = r.left + r.width / 2;
+  const toRight = centerX < window.innerWidth / 2;
+
+  railEl.classList.toggle('grow-right', toRight);
+  railEl.classList.toggle('grow-left', !toRight);
+}
+
 /** 把 left/top 换算成 CSS 值，并保证整个栏都在视口内 */
 function clampRailPos(left, top) {
   const r = railEl.getBoundingClientRect();
@@ -153,11 +174,29 @@ function clampRailPos(left, top) {
   };
 }
 
-/** 应用位置：切换为左上角定位 */
+/**
+ * 应用位置：切换为左上角定位
+ *
+ * 定位与展开方向的关系：
+ *   栏靠左时用 left 锚定 → 宽度增加时向右长（grow-right）
+ *   栏靠右时用 right 锚定 → 宽度增加时向左长（grow-left）
+ * 因此这里不能一律写成 left，否则靠右的栏展开后会冲出屏幕。
+ */
 function applyRailPos(left, top) {
-  railEl.style.left = left + 'px';
+  const r = railEl.getBoundingClientRect();
+  const anchorByRight = (left + r.width / 2) >= window.innerWidth / 2;
+
+  if (anchorByRight) {
+    // 用右边锚定：距右侧的距离 = 视口宽 - 左边缘 - 宽度
+    const rightGap = Math.round(window.innerWidth - left - r.width);
+    railEl.style.right = Math.max(rightGap, 6) + 'px';
+    railEl.style.left = 'auto';
+  } else {
+    railEl.style.left = left + 'px';
+    railEl.style.right = 'auto';
+  }
+
   railEl.style.top = top + 'px';
-  railEl.style.right = 'auto';
   railEl.style.transform = 'none';
   railEl.classList.add('moved');
 }
@@ -168,7 +207,8 @@ function resetRailPos() {
   railEl.style.top = '';
   railEl.style.right = '';
   railEl.style.transform = '';
-  railEl.classList.remove('moved');
+  railEl.classList.remove('moved', 'grow-right');
+  railEl.classList.add('grow-left');
   try {
     localStorage.removeItem(RAIL_POS_KEY);
   } catch { /* 隐私模式下可能不可用 */ }
@@ -186,16 +226,24 @@ function resetRailPos() {
     requestAnimationFrame(() => {
       const p = clampRailPos(saved.left, saved.top);
       applyRailPos(p.left, p.top);
+      updateRailGrowDir();
     });
+  } else {
+    // 默认靠右：向左展开
+    railEl.classList.add('grow-left');
   }
 })();
 
-// 窗口尺寸变化时，把栏重新约束回视口内
+// 窗口尺寸变化时，把栏重新约束回视口内，并重算展开方向
 window.addEventListener('resize', () => {
-  if (!railEl.classList.contains('moved')) return;
+  if (!railEl.classList.contains('moved')) {
+    updateRailGrowDir();
+    return;
+  }
   const r = railEl.getBoundingClientRect();
   const p = clampRailPos(r.left, r.top);
   applyRailPos(p.left, p.top);
+  updateRailGrowDir();
 });
 
 (function enableRailDrag() {
@@ -211,6 +259,9 @@ window.addEventListener('resize', () => {
 
     dragging = false;
     railEl.classList.remove('dragging');
+
+    // 拖动结束后重算展开方向：拖到左半屏就该向右长了
+    updateRailGrowDir();
 
     const r = railEl.getBoundingClientRect();
     try {
