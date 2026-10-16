@@ -26,6 +26,7 @@ from ai_diagnosis import DiagnosisSession
 import repair_log
 import classroom
 import daily_task
+import version
 
 # Flask 应用配置
 # templates 和 static 目录放在项目根下
@@ -606,7 +607,7 @@ def api_delete_task(tid):
 
 if __name__ == '__main__':
     print('=' * 55)
-    print('  机房故障智能诊断助手 · Web 版')
+    print(f'  机房故障智能诊断助手 · Web 版  v{version.VERSION}')
     print('=' * 55)
     print()
     print('  访问地址: http://127.0.0.1:5000')

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ai_diagnosis import DiagnosisSession
 import repair_log
+import version
 
 DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'fault_cases.json')
 
@@ -60,7 +61,7 @@ def print_help():
 def main():
     """主程序入口"""
     print("=" * 55)
-    print("  机房故障智能诊断助手  v0.5.0")
+    print(f"  机房故障智能诊断助手  v{version.VERSION}")
     print("=" * 55)
     print()
 
