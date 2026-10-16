@@ -13,8 +13,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows 也要测：项目主要在 Windows 机房环境使用，
-        # 且文件锁在 Windows 上走的是 msvcrt 分支，与 Linux 不同
+        # Windows 也要测：
+        #   · 项目主要部署在 Windows 机房环境
+        #   · 文件锁在 Windows 走 msvcrt、Linux 走 fcntl，两条分支必须都验证
+        #     （历史上有一个竞态只在 Linux 暴露，只测 Windows 是发现不了的）
         os: [ubuntu-latest, windows-latest]
         python-version: ['3.10', '3.12']
 
@@ -33,4 +35,9 @@ jobs:
 
       - name: 运行测试
         # 测试不调用真实大模型 API，因此不需要配置 DEEPSEEK_API_KEY
-        run: python -m pytest tests -v
+        #
+        # 用 tools/ci_report.py 而不是直接 pytest：
+        #   它会额外把失败用例转成 annotation，
+        #   这样没有仓库权限的人也能在网页上看到具体是哪个用例挂了，
+        #   而不只是一个笼统的红叉。
+        run: python tools/ci_report.py
