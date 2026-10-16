@@ -545,11 +545,15 @@ def api_statistics():
 
         return jsonify({
             'total': total,
-            'by_status': {
-                '未报修': by_status.get(repair_log.STATUS_PENDING, 0),
-                '已报修': by_status.get(repair_log.STATUS_REPORTED, 0),
-                '已解决': resolved,
-            },
+            # 按状态汇总。
+            #
+            # 必须遍历 repair_log.ALL_STATUS 生成，不能手写一份固定映射：
+            # 历史缺陷 —— 当初从三态扩到四态（新增「可自修」）时，
+            # 这份映射没有同步更新，于是看板上各类数字相加小于实际记录数
+            # （3+1+5=9，实际 11 条），图表也缺了一块。
+            # 改为从 ALL_STATUS 派生后，以后再加状态也不会漏。
+            'by_status': {st: by_status.get(st, 0)
+                          for st in repair_log.ALL_STATUS},
             'resolve_rate': resolve_rate,
             'top_classrooms': top_classrooms,
             'dates': [d for d, _ in date_sorted],

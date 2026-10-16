@@ -1315,6 +1315,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   box-shadow: var(--shadow-md);
 }
 .kpi-red::before   { background: linear-gradient(90deg, var(--red), #f87171); }
+.kpi-yellow::before { background: linear-gradient(90deg, #eab308, #facc15); }
 .kpi-amber::before { background: linear-gradient(90deg, var(--amber), #fbbf24); }
 .kpi-green::before { background: linear-gradient(90deg, var(--green), #4ade80); }
 
@@ -1324,9 +1325,10 @@ main { flex: 1; overflow: hidden; position: relative; }
   line-height: 1.1;
   letter-spacing: -0.5px;
 }
-.kpi-red .kpi-value   { color: #f87171; }
-.kpi-amber .kpi-value { color: #fbbf24; }
-.kpi-green .kpi-value { color: #4ade80; }
+.kpi-red .kpi-value    { color: #f87171; }
+.kpi-yellow .kpi-value { color: #eab308; }
+.kpi-amber .kpi-value  { color: #fbbf24; }
+.kpi-green .kpi-value  { color: #4ade80; }
 .kpi:not(.kpi-red):not(.kpi-amber):not(.kpi-green) .kpi-value { color: #93c5fd; }
 
 .kpi-label { font-size: 13px; color: var(--text-dim); margin-top: 6px; }

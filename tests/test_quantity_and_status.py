@@ -55,6 +55,36 @@ class TestStatusConstants:
         assert repair_log.STATUS_SELF_FIX in repair_log.UNRESOLVED_STATUS
         assert repair_log.STATUS_RESOLVED not in repair_log.UNRESOLVED_STATUS
 
+    def test_statistics_covers_every_status(self, tmp_data):
+        """
+        统计接口必须覆盖全部状态，各类相加要等于总数
+
+        历史缺陷：app.py 里 by_status 是手写的固定映射，
+        从三态扩到四态（新增「可自修」）时没有同步更新。
+        结果看板上四类数字相加小于实际记录数（3+1+5=9，实际 11 条），
+        状态分布图也少了一块。
+        """
+        import app as webapp
+
+        # 四种状态各来一条
+        for st in repair_log.ALL_STATUS:
+            repair_log.add_record('A101', f'现象-{st}', '结论', status=st)
+
+        client = webapp.app.test_client()
+        resp = client.get('/api/statistics')
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        by_status = data['by_status']
+
+        # 每个状态都要有键，缺一个就说明映射又漏了
+        for st in repair_log.ALL_STATUS:
+            assert st in by_status, f'统计里缺少状态「{st}」'
+
+        assert sum(by_status.values()) == data['total'], (
+            f'各状态之和 {sum(by_status.values())} 与总数 {data["total"]} 不一致'
+        )
+
     def test_legacy_status_is_migrated(self, tmp_data):
         """
         旧状态名「待自修」读取时自动归一为「可自修」

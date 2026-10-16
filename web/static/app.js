@@ -1178,6 +1178,7 @@ async function loadStats() {
     // ---- KPI ----
     $('#kpi-total').textContent = d.total;
     $('#kpi-pending').textContent = d.by_status['未报修'] || 0;
+    $('#kpi-selffix').textContent = d.by_status['可自修'] || 0;
     $('#kpi-reported').textContent = d.by_status['已报修'] || 0;
     $('#kpi-resolved').textContent = d.by_status['已解决'] || 0;
     $('#kpi-rate').textContent = d.resolve_rate + '%';
@@ -1204,6 +1205,7 @@ async function loadStats() {
         label: { show: false },
         data: [
           { value: d.by_status['未报修'] || 0, name: '未报修', itemStyle: { color: '#ef4444' } },
+          { value: d.by_status['可自修'] || 0, name: '可自修', itemStyle: { color: '#eab308' } },
           { value: d.by_status['已报修'] || 0, name: '已报修', itemStyle: { color: '#f59e0b' } },
           { value: d.by_status['已解决'] || 0, name: '已解决', itemStyle: { color: '#22c55e' } },
         ].filter(x => x.value > 0),

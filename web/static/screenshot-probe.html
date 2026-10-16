@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>截图探针</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0b0f14; }
+  iframe { position: fixed; inset: 0; width: 100vw; height: 100vh;
+           border: 0; }
+</style>
+</head>
+<body>
+<!--
+  截图探针（仅用于自动生成 README 截图，不参与产品功能）
+
+  为什么需要它：
+    应用是单页交互式的，关键界面（教室管理、教室详情）需要点击才出现，
+    无头浏览器没法"点击"。
+    把应用放进同源 iframe 后，就可以用脚本调用它的全局函数来切换界面。
+
+  用法：
+    /static/_shot.html?scene=records
+    /static/_shot.html?scene=room&expand=1
+-->
+<iframe id="f" src="/"></iframe>
+<script>
+const params = new URLSearchParams(location.search);
+const scene = params.get('scene') || 'chat';
+const expand = params.get('expand') === '1';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+document.getElementById('f').addEventListener('load', async () => {
+  const w = document.getElementById('f').contentWindow;
+  await sleep(400);
+
+  // 关掉所有 CSS 动画。
+  // 无头浏览器用的是虚拟时间，入场动画（fadeInUp / viewIn）不会真正播完，
+  // 截图会停在 opacity:0 那一帧 —— 内容看起来是半透明的。
+  // 关掉动画后元素会直接呈现"最终状态"，正是我们想截的样子。
+  const killAnim = w.document.createElement('style');
+  killAnim.textContent =
+    '*, *::before, *::after {' +
+    '  animation: none !important;' +
+    '  transition: none !important;' +
+    '}';
+  w.document.head.appendChild(killAnim);
+
+  // 进入应用
+  if (scene === 'landing') {
+    // 落地页那几个数字走的是 rAF 驱动的滚动动画（animateNumber）。
+    // 无头浏览器的虚拟时间下 performance.now() 几乎不推进，
+    // 动画永远到不了终点，数字会停在中间值（11 显示成 3）。
+    //
+    // 处理：先掐断 requestAnimationFrame（让循环停下），
+    // 再用接口的真实值直接写入 DOM。
+    w.requestAnimationFrame = () => 0;
+    await sleep(250);
+
+    try {
+      const d = await (await fetch('/api/statistics')).json();
+      const set = (sel, v) => {
+        const el = w.document.querySelector(sel);
+        if (el) el.textContent = v;
+      };
+      set('#ls-total', d.total);
+      set('#ls-pending', (d.by_status || {})['未报修'] ?? 0);
+      set('#ls-rate', d.resolve_rate + '%');
+    } catch (e) { /* 取不到就保持原样 */ }
+
+    await sleep(300);
+    document.title = 'READY';
+    return;
+  }
+
+  w.enterApp(scene === 'admin' || scene === 'room' ? 'chat' : scene);
+  await sleep(1500);
+
+  // 诊断页：注入一段真实的多轮排查对话。
+  // 空白的对话框看不出"对话式逐步排查"这个核心设计，
+  // 这里用一段符合系统实际输出的对话来展示。
+  if (scene === 'chat' && typeof w.addTurn === 'function') {
+    const conv = [
+      ['501 教室有几台电脑开不了机', 'user', false],
+      ['按开机键之后，机箱指示灯亮吗？风扇转吗？', 'ai', false],
+      ['按电源没反应，灯不亮', 'user', false],
+      ['检查一下机箱后面的电源线两头有没有插紧，插紧后再按开机键，有反应吗？',
+        'ai', false],
+      ['换了电源线还是不行', 'user', false],
+      ['把电脑插到旁边正常的机位上试试，能开机吗？', 'ai', false],
+      ['换了机位就能开', 'user', false],
+      ['这间教室有几台是这个情况？', 'ai', false],
+      ['有 3 台', 'user', false],
+      ['原因：这几个机位的插座没电（供电故障），主机本身没问题。\n'
+        + '数量：3 台\n'
+        + '处理：先确认是不是这几路插座对应的空气开关跳闸了；'
+        + '若空开正常，说明是教室供电线路问题，需要联系后勤电工检修。',
+        'ai', true],
+    ];
+    for (const [text, who, concl] of conv) {
+      w.addTurn(text, who, concl);
+    }
+
+    // 滚到底部，让结论可见
+    const box = w.document.querySelector('#messages');
+    if (box) box.scrollTop = box.scrollHeight;
+    await sleep(400);
+  }
+
+  if (expand && typeof w.expandRail === 'function') {
+    w.expandRail();
+    await sleep(600);
+  }
+
+  if (scene === 'admin') {
+    const gear = w.document.querySelector('#gear-btn');
+    if (gear) gear.click();
+    await sleep(1200);
+  }
+
+  if (scene === 'room') {
+    const gear = w.document.querySelector('#gear-btn');
+    if (gear) gear.click();
+    await sleep(1200);
+
+    // 打开第一间教室的详情
+    const row = w.document.querySelector('[data-open-room]');
+    if (row) {
+      await w.openRoomDetail(row.dataset.openRoom, row.dataset.room);
+      await sleep(1200);
+    }
+  }
+
+  document.title = 'READY';
+});
+</script>
+</body>
+</html>
