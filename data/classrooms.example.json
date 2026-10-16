@@ -1,0 +1,17 @@
+{
+  "buildings": [
+    {
+      "name": "教学楼A",
+      "rooms": [
+        { "name": "A101", "total": 60, "broken": 0, "note": "示例数据，可在后台管理中修改或删除" },
+        { "name": "A102", "total": 60, "broken": 0, "note": "" }
+      ]
+    },
+    {
+      "name": "实验楼",
+      "rooms": [
+        { "name": "201", "total": 40, "broken": 0, "note": "" }
+      ]
+    }
+  ]
+}

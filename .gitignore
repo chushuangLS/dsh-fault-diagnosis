@@ -39,6 +39,9 @@ logs/
 
 # 运维记录（含实际教室号和故障信息，不公开）
 data/repair_records.csv
+# 运行时数据（教室台账、日常报备），仓库内只保留示例文件
+data/classrooms.json
+data/daily_tasks.json
 
 # 测试与缓存
 .pytest_cache/
