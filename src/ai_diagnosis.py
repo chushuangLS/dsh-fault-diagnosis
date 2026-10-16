@@ -25,6 +25,10 @@ DONE_MARKER = "【诊断结束】"
 # 报修标记：结论需要报修时输出，程序据此写入记录
 REPAIR_MARKER = "【需要报修】"
 
+# 自修标记：结论属于非硬件问题、可自行修复
+# 这类故障不占用报修资源，在界面上标为「待自修」（黄色）
+SELF_FIX_MARKER = "【可自修】"
+
 # 系统提示词：约束 AI 的交互方式
 # 这是本模块的核心，决定了对话的质量
 SYSTEM_PROMPT = """你是一名高校机房的运维工程师，正在通过对话帮学生管理员排查设备故障。
@@ -58,8 +62,12 @@ SYSTEM_PROMPT = """你是一名高校机房的运维工程师，正在通过对�
 
 7. **用户答非所问时**：先简短确认他的信息，再把原来的问题换个更简单的说法。
 
-8. **什么时候结束**：当你已经能确定故障原因时，第一行输出 `【诊断结束】`，
-   然后给出结论。
+8. **确定原因后，先问损坏数量**：当你能确定故障原因时，不要立刻结束，
+   而是先问一句「这间教室有**几台**是这个情况？」。
+   拿到数量后再输出结论。用户已经说了数量（如"5 台都开不了机"）就跳过这一步。
+
+9. **什么时候结束**：确认了原因、并问清数量之后，
+   第一行输出 `【诊断结束】`，然后给出结论。
 
 ## 结论格式（严格遵守）
 
@@ -68,17 +76,29 @@ SYSTEM_PROMPT = """你是一名高校机房的运维工程师，正在通过对�
 ```
 【诊断结束】
 原因：<一句话说明故障原因>
+数量：<N 台>
 处理：<自己修 / 需要报修，并说明具体怎么做>
 ```
 
 **如果结论是需要报修**（如硬件损坏、需要专业人员处理），
 在结论最后**单独加一行** `【需要报修】`。
 
+**如果结论是可以自己修**（非硬件问题，如线松了、信号源选错、系统设置问题），
+在结论最后**单独加一行** `【可自修】`。
+
 判断标准：涉及以下情况必须报修
 - 硬件损坏（电源、主板、内存、硬盘、显示器等）
 - 需要更换配件
 - 网络设备故障（交换机、上联线路）
 - 学生无法安全处理的（带电作业、拆机箱等）
+
+反之，以下情况属于「可自修」：
+- 线材松动、插口没插好
+- 信号源 / 输入源选错
+- 显示器电源没开、亮度调到最低
+- 系统设置问题（分辨率、显示模式）
+- 换个机位、换根线就能解决的
+- 教室总闸跳闸，合闸即可
 
 ## 回复格式（严格遵守）
 
@@ -152,6 +172,76 @@ def build_knowledge_context(query=''):
     return f"【本校机房故障知识库】共 {s['total']} 条案例，覆盖：{cats}"
 
 
+def parse_quantity(text):
+    """
+    从 AI 的结论里解析损坏数量
+
+    AI 按约定输出「数量：3 台」，但实际可能写成
+    "3 台" / "三台" / "大概 5 台" 等，这里做容错解析。
+
+    解析不出来时返回 1（保守估计：至少坏了一台）。
+    """
+    import re
+
+    if not text:
+        return 1
+
+    # 优先取「数量：」后面的数字
+    m = re.search(r'数量[:：]\s*(\d+)', text)
+    if m:
+        return max(int(m.group(1)), 1)
+
+    # 中文数字
+    cn = {'一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5,
+          '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+    m = re.search(r'([一两二三四五六七八九十]+)\s*台', text)
+    if m:
+        s = m.group(1)
+        if s in cn:
+            return cn[s]
+        if s.startswith('十'):
+            return 10 + cn.get(s[1:], 0)
+        if '十' in s:
+            a, _, b = s.partition('十')
+            return cn.get(a, 1) * 10 + cn.get(b, 0)
+
+    # 兜底：任意位置出现 "N 台"
+    m = re.search(r'(\d+)\s*台', text)
+    if m:
+        return max(int(m.group(1)), 1)
+
+    return 1
+
+
+def apply_markers(session, reply):
+    """
+    根据 AI 回复里的标记，更新会话状态
+
+    抽成公共函数，避免 send 和 send_stream 两处各写一份、改漏一处
+    （历史上这两条路径就曾因为各写一份而行为不一致）。
+    """
+    if REPAIR_MARKER in reply:
+        session.need_repair = True
+    if SELF_FIX_MARKER in reply:
+        session.self_fix = True
+
+    if DONE_MARKER in reply:
+        session.finished = True
+        # 数量只在结论文本里才有意义
+        session.quantity = parse_quantity(reply)
+
+    return reply
+
+
+def clean_markers(reply):
+    """去掉控制用的标记，留下给用户看的干净文本"""
+    return (reply
+            .replace(DONE_MARKER, '')
+            .replace(REPAIR_MARKER, '')
+            .replace(SELF_FIX_MARKER, '')
+            .strip())
+
+
 def save_diagnosis_case(session):
     """
     把一次完成的诊断沉淀进知识库
@@ -199,6 +289,8 @@ class DiagnosisSession:
         self.building = ''         # 教学楼名称（前端选择时写入）
         self.symptom = ''          # 原始故障描述
         self.need_repair = False   # 结论是否需要报修
+        self.self_fix = False      # 结论是否属于「可自修」
+        self.quantity = 1          # 损坏数量（AI 确认原因后询问得到）
         self.conclusion = ''       # 诊断结论
         self._last_asked_classroom = False   # AI 上一句是否在问教室号
         self.excluded = []         # 已排除的原因（用于沉淀案例）
@@ -341,16 +433,11 @@ class DiagnosisSession:
             and ('教室' in reply and ('哪' in reply or '几' in reply))
         )
 
-        # 判断是否需要报修（要在剥离标记前判断）
-        if REPAIR_MARKER in reply:
-            self.need_repair = True
-
-        # 判断是否结束
-        if DONE_MARKER in reply:
-            self.finished = True
+        # 判断是否需要报修 / 可自修 / 是否结束（要在剥离标记前判断）
+        apply_markers(self, reply)
 
         # 清理标记，得到干净的回复
-        clean = reply.replace(DONE_MARKER, '').replace(REPAIR_MARKER, '').strip()
+        clean = clean_markers(reply)
 
         if self.finished:
             self.conclusion = clean
@@ -412,12 +499,9 @@ class DiagnosisSession:
             and ('教室' in reply and ('哪' in reply or '几' in reply))
         )
 
-        if REPAIR_MARKER in reply:
-            self.need_repair = True
-        if DONE_MARKER in reply:
-            self.finished = True
+        apply_markers(self, reply)
 
-        clean = reply.replace(DONE_MARKER, '').replace(REPAIR_MARKER, '').strip()
+        clean = clean_markers(reply)
         if self.finished:
             self.conclusion = clean
 
@@ -426,6 +510,8 @@ class DiagnosisSession:
             'reply': clean,
             'finished': self.finished,
             'need_repair': self.need_repair,
+            'self_fix': self.self_fix,
+            'quantity': self.quantity,
             'classroom': self.classroom or '',
         }
 

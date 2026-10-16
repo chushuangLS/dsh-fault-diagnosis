@@ -1574,6 +1574,101 @@ main { flex: 1; overflow: hidden; position: relative; }
 .detail-stat.ok .dv { color: #4ade80; }
 .detail-stat.bad .dv { color: #f87171; }
 .detail-stat.tot .dv { color: #93c5fd; }
+/* 待自修：黄色，表示非硬件问题、可自行修复 */
+.detail-stat.selffix .dv { color: #eab308; }
+
+/* 四格状态：总数 / 正常 / 待自修 / 需报修 */
+.detail-stats-4 {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+/* 状态徽章：待自修用黄色 */
+.badge.待自修 { background: rgba(234,179,8,0.16); color: #eab308; }
+
+/* 数量标签：一条记录代表多台设备时显示 */
+.qty-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(59,130,246,0.16);
+  color: #93c5fd;
+  border: 1px solid rgba(59,130,246,0.3);
+  margin-left: 6px;
+}
+
+.sm-selffix b { color: #eab308; }
+
+/* -------- 登记故障表单 -------- */
+.ff-hint {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  margin: 0 0 14px;
+  line-height: 1.6;
+}
+
+.fault-form-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.fault-form-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.fault-form-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: middle;
+}
+.fault-form-table .ff-idx {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+}
+.fault-form-table input[type="text"],
+.fault-form-table input[type="number"],
+.fault-form-table select {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s var(--ease);
+}
+.fault-form-table input:focus,
+.fault-form-table select:focus {
+  border-color: rgba(59,130,246,0.5);
+}
+.fault-form-table .ff-qty-cell input { text-align: center; }
+
+.ff-del {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s var(--ease);
+}
+.ff-del:hover { color: #f87171; background: rgba(239,68,68,0.1); }
+
+.ff-summary {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+  min-height: 20px;
+}
+.ff-summary b { color: #93c5fd; }
 
 #room-chart { width: 100%; height: 220px; margin-bottom: 20px; }
 

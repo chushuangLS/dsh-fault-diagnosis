@@ -98,28 +98,30 @@ def _delete_building_locked(name):
 
 # ---------------- 教室 ----------------
 
-def add_room(building, room_name, total=0, broken=0, note=''):
-    """在某教学楼下新增教室"""
+def add_room(building, room_name, total=0, note=''):
+    """
+    在某教学楼下新增教室
+
+    说明：不再接受"损坏数"参数 —— 设备的损坏台数完全由报修台账推导，
+    在这里手填会和台账冲突（两处记录同一件事，必然对不上）。
+    """
     room_name = (room_name or '').strip()
     if not room_name:
         return False, '教室名称不能为空'
 
     try:
         total = int(total)
-        broken = int(broken)
     except (TypeError, ValueError):
         return False, '电脑数量必须是整数'
 
-    if total < 0 or broken < 0:
+    if total < 0:
         return False, '数量不能为负数'
-    if broken > total:
-        return False, '损坏数不能大于总数'
 
     with file_lock(DATA_FILE):
-        return _add_room_locked(building, room_name, total, broken, note)
+        return _add_room_locked(building, room_name, total, note)
 
 
-def _add_room_locked(building, room_name, total, broken, note):
+def _add_room_locked(building, room_name, total, note):
     data = load()
     for b in data['buildings']:
         if b['name'] == building:
@@ -128,7 +130,6 @@ def _add_room_locked(building, room_name, total, broken, note):
             b['rooms'].append({
                 'name': room_name,
                 'total': total,
-                'broken': broken,
                 'note': note or '',
             })
             save(data)
@@ -137,10 +138,10 @@ def _add_room_locked(building, room_name, total, broken, note):
     return False, f'未找到教学楼「{building}」'
 
 
-def update_room(building, room_name, total=None, broken=None, note=None):
-    """修改教室信息"""
+def update_room(building, room_name, total=None, note=None):
+    """修改教室信息（电脑总数 / 备注）"""
     with file_lock(DATA_FILE):
-        return _update_room_locked(building, room_name, total, broken, note)
+        return _update_room_locked(building, room_name, total, note)
 
 
 def _update_room_locked(building, room_name, total=None, broken=None, note=None):
@@ -161,20 +162,12 @@ def _update_room_locked(building, room_name, total=None, broken=None, note=None)
                     return False, '电脑总数必须是整数'
                 r['total'] = total
 
-            if broken is not None:
-                try:
-                    broken = int(broken)
-                    if broken < 0:
-                        return False, '损坏数不能为负数'
-                except (TypeError, ValueError):
-                    return False, '损坏数必须是整数'
-                r['broken'] = broken
-
             if note is not None:
                 r['note'] = note
 
-            if r['broken'] > r['total']:
-                return False, '损坏数不能大于总数'
+            # 兼容：清掉旧数据里遗留的手动损坏数字段
+            # （损坏台数现在完全由报修台账推导）
+            r.pop('broken', None)
 
             save(data)
             return True, f'已更新教室「{room_name}」'
@@ -205,41 +198,65 @@ def _delete_room_locked(building, room_name):
 
 # ---------------- 统计 ----------------
 
-def _count_unresolved_by_room():
+def _room_status_counts():
     """
-    从报修台账统计每间教室「未解决」的故障数
+    从报修台账统计每间教室各状态的机器台数
 
-    返回：{"教学楼|教室": 数量}
-    说明：未解决 = 状态为「未报修」或「已报修」
-          这是教室里「损坏电脑数」的真实来源，避免两处数据不一致
+    返回：{"教学楼|教室": {'未报修': n, '待自修': n, '已报修': n, '已解决': n}}
+
+    说明：
+      · 按「数量」字段累加台数，而不是数记录条数
+        （一条记录可能代表多台同因损坏的机器）
+      · 台数的唯一来源是报修台账，教室台账不再单独存"损坏数"，
+        避免两处数据不一致
     """
     try:
         import repair_log
     except ImportError:
         return {}
 
-    counts = {}
+    result = {}
     try:
         records = repair_log.load_records()
     except Exception:
-        return counts
+        return result
 
     for r in records:
-        # 已解决的机器算修好了，不计入损坏
-        if r.get('状态') == repair_log.STATUS_RESOLVED:
-            continue
         room = (r.get('教室') or '').strip()
         building = (r.get('教学楼') or '').strip()
         if not room or room == '未填写':
             continue
-        key = f'{building}|{room}'
-        counts[key] = counts.get(key, 0) + 1
 
+        status = r.get('状态') or repair_log.STATUS_PENDING
+        qty = repair_log.get_quantity(r)
+
+        key = f'{building}|{room}'
+        d = result.setdefault(key, {})
+        d[status] = d.get(status, 0) + qty
+
+    return result
+
+
+def _count_unresolved_by_room():
+    """
+    每间教室「不能用」的机器台数
+
+    「不能用」= 未报修 + 待自修 + 已报修（即尚未解决的）
+    已解决的机器算修好了，不计入。
+    """
+    counts = {}
+    for key, by_status in _room_status_counts().items():
+        n = sum(
+            v for s, v in by_status.items()
+            if s != '已解决'
+        )
+        if n:
+            counts[key] = n
     return counts
 
 
 def _count_auto_broken(building, room):
-    """某间教室由报修记录自动统计出的损坏数"""
+    """某间教室由报修记录统计出的未解决台数"""
     key = f'{building}|{room}'
     return _count_unresolved_by_room().get(key, 0)
 
@@ -248,42 +265,41 @@ def summary():
     """
     汇总统计
 
-    损坏数 = 手动登记数 + 报修台账自动统计数
+    设备分三种状态：
+      正常    —— 台账总数 - 不能用台数
+      待自修  —— 非硬件问题，可自行修复（黄色）
+      不能用  —— 需要报修 / 等待维修（硬件故障）
 
-    为什么两者相加：
-      手动登记 —— 用于"发现了但还没来得及走诊断流程"的临时记录
-      自动统计 —— 从报修台账算出的、有据可查的损坏
-      两者是不同来源，相加才是这间教室真实的损坏总数
+    台数的唯一来源是报修台账，教室台账不再单独存"损坏数"，
+    避免同一件事记在两个地方、两边对不上。
     """
     data = load()
     buildings = data['buildings']
-    broken_map = _count_unresolved_by_room()
+    status_map = _room_status_counts()
 
     total_rooms = 0
     total_pcs = 0
     total_broken = 0
-    total_manual = 0
-    total_auto = 0
+    total_self_fix = 0
 
     for b in buildings:
         for r in b['rooms']:
             total_rooms += 1
             total_pcs += r.get('total', 0)
 
-            manual = r.get('broken', 0)
-            auto = broken_map.get(f"{b['name']}|{r['name']}", 0)
+            by_status = status_map.get(f"{b['name']}|{r['name']}", {})
+            self_fix = by_status.get('待自修', 0)
+            broken = sum(v for s, v in by_status.items() if s != '已解决')
 
-            total_manual += manual
-            total_auto += auto
-            total_broken += manual + auto
+            total_self_fix += self_fix
+            total_broken += broken
 
     return {
         'buildings': len(buildings),
         'rooms': total_rooms,
         'total_pcs': total_pcs,
         'broken_pcs': total_broken,
-        'manual_broken': total_manual,
-        'auto_broken': total_auto,
+        'self_fix_pcs': total_self_fix,
         'healthy_pcs': max(total_pcs - total_broken, 0),
     }
 
@@ -292,22 +308,27 @@ def flat_rooms():
     """
     把两级结构拍平
 
-    损坏数拆成两个来源，便于前端解释"这个数字怎么来的"：
-      manual_broken —— 手动登记的
-      auto_broken   —— 从报修台账自动统计的
-      broken        —— 两者之和
+    每间教室给出三种状态的台数：
+      self_fix_pcs —— 待自修（黄色）
+      broken_pcs   —— 不能用（含待自修，因为自修前也用不了）
+      healthy_pcs  —— 正常
     """
     data = load()
-    broken_map = _count_unresolved_by_room()
+    status_map = _room_status_counts()
     out = []
 
     for b in data['buildings']:
         for r in b['rooms']:
             key = f"{b['name']}|{r['name']}"
-            manual = r.get('broken', 0)
-            auto = broken_map.get(key, 0)
-            broken = manual + auto
+            by_status = status_map.get(key, {})
+
             total = r.get('total', 0)
+            pending = by_status.get('未报修', 0)
+            self_fix = by_status.get('待自修', 0)
+            reported = by_status.get('已报修', 0)
+            resolved = by_status.get('已解决', 0)
+
+            broken = pending + self_fix + reported
 
             out.append({
                 'building': b['name'],
@@ -315,9 +336,13 @@ def flat_rooms():
                 'full_name': f"{b['name']}-{r['name']}",
                 'total': total,
                 'broken': broken,
-                'manual_broken': manual,
-                'auto_broken': auto,
+                'broken_pcs': broken,
+                'self_fix_pcs': self_fix,
+                'pending_pcs': pending,
+                'reported_pcs': reported,
+                'resolved_pcs': resolved,
                 'healthy': max(total - broken, 0),
+                'healthy_pcs': max(total - broken, 0),
                 'note': r.get('note', ''),
             })
     return out

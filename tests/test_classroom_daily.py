@@ -10,7 +10,7 @@ class TestClassroom:
 
     def test_add_building_and_room(self, tmp_data):
         assert classroom.add_building('教学楼A')[0]
-        assert classroom.add_room('教学楼A', 'A101', 60, 2)[0]
+        assert classroom.add_room('教学楼A', 'A101', 60)[0]
 
         data = classroom.load()
         assert data['buildings'][0]['name'] == '教学楼A'
@@ -25,76 +25,111 @@ class TestClassroom:
         assert not classroom.add_building('')[0]
         assert not classroom.add_building('   ')[0]
 
-    def test_broken_cannot_exceed_total(self, tmp_data):
-        classroom.add_building('教学楼A')
-        ok, msg = classroom.add_room('教学楼A', 'A101', 10, 20)
-        assert not ok
-        assert '损坏数' in msg
-
     def test_negative_rejected(self, tmp_data):
         classroom.add_building('教学楼A')
-        assert not classroom.add_room('教学楼A', 'A101', -1, 0)[0]
-        assert not classroom.add_room('教学楼A', 'A101', 10, -1)[0]
+        assert not classroom.add_room('教学楼A', 'A101', -1)[0]
 
     def test_non_integer_rejected(self, tmp_data):
         classroom.add_building('教学楼A')
-        ok, msg = classroom.add_room('教学楼A', 'A101', 'abc', 0)
+        ok, msg = classroom.add_room('教学楼A', 'A101', 'abc')
         assert not ok
 
     def test_room_in_missing_building(self, tmp_data):
-        ok, msg = classroom.add_room('不存在的楼', 'A101', 10, 0)
+        ok, msg = classroom.add_room('不存在的楼', 'A101', 10)
         assert not ok
 
     def test_duplicate_room(self, tmp_data):
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 60, 0)
-        assert not classroom.add_room('教学楼A', 'A101', 60, 0)[0]
+        classroom.add_room('教学楼A', 'A101', 60)
+        assert not classroom.add_room('教学楼A', 'A101', 60)[0]
 
     def test_update_room(self, tmp_data):
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 60, 2)
-        ok, _ = classroom.update_room('教学楼A', 'A101', broken=5)
+        classroom.add_room('教学楼A', 'A101', 60)
+        ok, _ = classroom.update_room('教学楼A', 'A101', total=80)
         assert ok
-        assert classroom.flat_rooms()[0]['broken'] == 5
+        assert classroom.flat_rooms()[0]['total'] == 80
 
-    def test_update_rejects_broken_over_total(self, tmp_data):
+    def test_manual_broken_field_removed(self, tmp_data):
+        """
+        教室台账不再存"损坏数" —— 台数只从报修台账推导，
+        避免两处记录同一件事、两边对不上
+        """
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 10, 2)
-        ok, msg = classroom.update_room('教学楼A', 'A101', broken=99)
-        assert not ok
+        classroom.add_room('教学楼A', 'A101', 60)
+
+        # 即使调用方传了 broken，也不应被写入台账
+        classroom.update_room('教学楼A', 'A101', total=60)
+        room = classroom.load()['buildings'][0]['rooms'][0]
+        assert 'broken' not in room
 
     def test_delete_room(self, tmp_data):
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 60, 0)
+        classroom.add_room('教学楼A', 'A101', 60)
         assert classroom.delete_room('教学楼A', 'A101')[0]
         assert classroom.flat_rooms() == []
 
     def test_delete_building_removes_rooms(self, tmp_data):
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 60, 0)
+        classroom.add_room('教学楼A', 'A101', 60)
         assert classroom.delete_building('教学楼A')[0]
         assert classroom.flat_rooms() == []
 
     def test_summary(self, tmp_data):
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 60, 2)
-        classroom.add_room('教学楼A', 'A102', 60, 0)
+        classroom.add_room('教学楼A', 'A101', 60)
+        classroom.add_room('教学楼A', 'A102', 60)
 
         s = classroom.summary()
         assert s['buildings'] == 1
         assert s['rooms'] == 2
         assert s['total_pcs'] == 120
-        assert s['broken_pcs'] == 2
-        assert s['healthy_pcs'] == 118
+        # 没有报修记录时，全部正常
+        assert s['broken_pcs'] == 0
+        assert s['healthy_pcs'] == 120
+
+    def test_summary_counts_from_repair_log(self, tmp_data):
+        """损坏台数应来自报修台账，而不是台账里手填的数字"""
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 60)
+
+        repair_log.add_record('A101', '开不了机', '原因：电源坏',
+                              building='教学楼A', quantity=3)
+
+        s = classroom.summary()
+        assert s['broken_pcs'] == 3
+        assert s['healthy_pcs'] == 57
+
+    def test_summary_three_states(self, tmp_data):
+        """待自修要单独统计出来"""
+        import repair_log
+
+        classroom.add_building('教学楼A')
+        classroom.add_room('教学楼A', 'A101', 60)
+
+        repair_log.add_record('A101', '网线松', '原因：网线松',
+                              status=repair_log.STATUS_SELF_FIX,
+                              building='教学楼A', quantity=2)
+        repair_log.add_record('A101', '电源坏', '原因：电源坏',
+                              status=repair_log.STATUS_PENDING,
+                              building='教学楼A', quantity=1)
+
+        s = classroom.summary()
+        assert s['self_fix_pcs'] == 2
+        assert s['broken_pcs'] == 3       # 待自修也算不能用
+        assert s['healthy_pcs'] == 57
 
     def test_healthy_never_negative(self, tmp_data):
-        """损坏数大于总数时，正常数不应为负（历史加固点）"""
+        """损坏数超过总数时，正常数不应为负"""
+        import repair_log
+
         classroom.add_building('教学楼A')
-        classroom.add_room('教学楼A', 'A101', 10, 0)
-        # 人为把数据改成不合法，模拟外部编辑
-        data = classroom.load()
-        data['buildings'][0]['rooms'][0]['broken'] = 99
-        classroom.save(data)
+        classroom.add_room('教学楼A', 'A101', 2)
+        for i in range(5):
+            repair_log.add_record('A101', f'故障{i}', '原因：x',
+                                  building='教学楼A')
         assert classroom.summary()['healthy_pcs'] >= 0
 
     def test_corrupt_file_returns_empty(self, tmp_data):

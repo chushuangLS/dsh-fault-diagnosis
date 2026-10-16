@@ -102,6 +102,26 @@ def get_session():
     return SESSIONS[sid]
 
 
+def _status_for_session(ds):
+    """
+    根据 AI 的结论决定记录的初始状态
+
+    判定顺序很重要：
+      1. 明确要求报修 → 未报修（硬件问题，等维修）
+      2. 明确可以自修 → 待自修（非硬件问题，自己能处理）
+      3. 两者都没有（AI 没打标记）→ 未报修
+
+    为什么默认落在「未报修」：
+      漏报修会让故障被遗忘；而"待自修"若判断错了，
+      用户仍可在界面上改状态。保守优先。
+    """
+    if ds.need_repair:
+        return repair_log.STATUS_PENDING
+    if ds.self_fix:
+        return repair_log.STATUS_SELF_FIX
+    return repair_log.STATUS_PENDING
+
+
 @app.route('/')
 def index():
     """主页"""
@@ -144,19 +164,26 @@ def api_chat():
             'reply': reply,
             'finished': finished,
             'need_repair': need_repair,
+            'self_fix': ds.self_fix,
+            'quantity': ds.quantity,
             'classroom': ds.classroom or '',
             'record_id': None,
         }
 
-        # 需要报修 → 写入台账
-        if finished and need_repair:
+        # 诊断结束 → 写入台账
+        # 需要报修的记为「未报修」，可自修的记为「待自修」
+        if finished:
+            status = _status_for_session(ds)
             rid = repair_log.add_record(
                 classroom=ds.classroom or '未填写',
                 symptom=ds.symptom,
                 conclusion=reply,
-                status=repair_log.STATUS_PENDING,
+                status=status,
+                building=ds.building or '',
+                quantity=ds.quantity,
             )
             result['record_id'] = rid
+            result['status'] = status
 
         # 结束的会话从内存里移除，下次重新开始
         if finished:
@@ -231,16 +258,20 @@ def api_chat_stream():
                     payload = dict(chunk)
                     payload['record_id'] = None
 
-                    # 需要报修 → 写入台账
-                    if payload.get('finished') and payload.get('need_repair'):
+                    # 诊断结束 → 写入台账
+                    # 需要报修的记为「未报修」，可自修的记为「待自修」
+                    if payload.get('finished'):
+                        status = _status_for_session(ds)
                         rid = repair_log.add_record(
                             classroom=payload.get('classroom') or '未填写',
                             symptom=ds.symptom,
                             conclusion=payload.get('reply', ''),
-                            status=repair_log.STATUS_PENDING,
+                            status=status,
                             building=getattr(ds, 'building', '') or '',
+                            quantity=payload.get('quantity', 1),
                         )
                         payload['record_id'] = rid
+                        payload['status'] = status
                         payload['building'] = getattr(ds, 'building', '') or ''
 
                     # 诊断完成 → 沉淀进知识库（越用越聪明）
@@ -346,37 +377,58 @@ def api_delete_record(record_id):
 @app.route('/api/records/manual', methods=['POST'])
 def api_manual_record():
     """
-    手动登记一条故障记录
+    手动登记故障记录
 
-    用于"发现了故障但没走 AI 诊断流程"的情况，
-    让教室的损坏数始终有据可查。
+    支持一次登记多条（表格里填多行：原因 + 数量）。
 
-    请求体：{"building": "...", "classroom": "...", "symptom": "...",
-             "conclusion": "...", "status": "未报修"}
+    请求体：
+      {
+        "building": "教学楼A",
+        "classroom": "A101",
+        "faults": [
+          {"reason": "电源损坏", "quantity": 3, "status": "未报修", "note": ""},
+          ...
+        ]
+      }
+
+      也兼容单条写法（symptom + conclusion + quantity）。
     """
     d = request.get_json(silent=True) or {}
     classroom_name = (d.get('classroom') or '').strip()
-    symptom = (d.get('symptom') or '').strip()
+    building = (d.get('building') or '').strip()
 
     if not classroom_name:
         return jsonify({'ok': False, 'message': '请指定教室'}), 400
-    if not symptom:
-        return jsonify({'ok': False, 'message': '请填写故障现象'}), 400
 
-    status = d.get('status') or repair_log.STATUS_PENDING
-    if status not in repair_log.ALL_STATUS:
-        status = repair_log.STATUS_PENDING
+    # 组装成统一的 faults 列表
+    faults = d.get('faults')
+    if not faults:
+        symptom = (d.get('symptom') or '').strip()
+        if not symptom:
+            return jsonify({'ok': False, 'message': '请至少填写一条故障'}), 400
+        faults = [{
+            'reason': symptom,
+            'quantity': d.get('quantity', 1),
+            'status': d.get('status') or repair_log.STATUS_PENDING,
+            'note': d.get('note', '') or '',
+        }]
 
-    rid = repair_log.add_record(
-        classroom=classroom_name,
-        symptom=symptom,
-        conclusion=(d.get('conclusion') or '').strip() or '人工登记，待排查',
-        status=status,
-        note=d.get('note', '') or '',
-        building=(d.get('building') or '').strip(),
-    )
+    # 校验状态合法性
+    for f in faults:
+        st = f.get('status') or repair_log.STATUS_PENDING
+        if st not in repair_log.ALL_STATUS:
+            f['status'] = repair_log.STATUS_PENDING
 
-    return jsonify({'ok': True, 'id': rid, 'message': f'已登记 {rid}'})
+    n, ids, err = repair_log.register_faults(building, classroom_name, faults)
+    if err:
+        return jsonify({'ok': False, 'message': err}), 400
+
+    return jsonify({
+        'ok': True,
+        'ids': ids,
+        'count': n,
+        'message': f'已登记 {n} 条故障（{", ".join(ids)}）',
+    })
 
 
 @app.route('/api/export/repair', methods=['GET'])
@@ -554,19 +606,25 @@ def api_room_detail():
     # 倒序，最新在前
     records = list(reversed(records))
 
-    # 按状态分组统计
-    pending = [r for r in records if r['状态'] == repair_log.STATUS_PENDING]
-    reported = [r for r in records if r['状态'] == repair_log.STATUS_REPORTED]
-    resolved = [r for r in records if r['状态'] == repair_log.STATUS_RESOLVED]
+    # 按状态统计「台数」——一条记录可能代表多台机器，所以要累加数量
+    def machines(status):
+        return sum(repair_log.get_quantity(r) for r in records
+                   if r['状态'] == status)
+
+    pending = machines(repair_log.STATUS_PENDING)
+    self_fix = machines(repair_log.STATUS_SELF_FIX)
+    reported = machines(repair_log.STATUS_REPORTED)
+    resolved = machines(repair_log.STATUS_RESOLVED)
 
     return jsonify({
         'info': info,
         'records': records,
         'counts': {
-            'pending': len(pending),
-            'reported': len(reported),
-            'resolved': len(resolved),
-            'unresolved': len(pending) + len(reported),
+            'pending': pending,
+            'self_fix': self_fix,
+            'reported': reported,
+            'resolved': resolved,
+            'unresolved': pending + self_fix + reported,
         },
     })
 
@@ -588,13 +646,12 @@ def api_delete_building(name):
 
 @app.route('/api/classrooms/room', methods=['POST'])
 def api_add_room():
-    """新增教室"""
+    """新增教室（只需电脑总数与备注，损坏台数由报修台账推导）"""
     d = request.get_json(silent=True) or {}
     ok, msg = classroom.add_room(
         d.get('building'),
         d.get('name'),
         d.get('total', 0),
-        d.get('broken', 0),
         d.get('note', ''),
     )
     return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
@@ -602,13 +659,12 @@ def api_add_room():
 
 @app.route('/api/classrooms/room', methods=['PUT'])
 def api_update_room():
-    """修改教室（电脑总数 / 损坏数 / 备注）"""
+    """修改教室（电脑总数 / 备注）"""
     d = request.get_json(silent=True) or {}
     ok, msg = classroom.update_room(
         d.get('building'),
         d.get('name'),
         d.get('total'),
-        d.get('broken'),
         d.get('note'),
     )
     return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)

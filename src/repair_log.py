@@ -19,15 +19,30 @@ from filelock import file_lock
 RECORD_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'repair_records.csv')
 
 # 表头
-# 说明：教学楼 列是后加的，旧记录的该列可能为空，读取时做兼容处理
-FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊断结论', '状态', '备注']
+# 说明：教学楼、数量 两列是后加的，旧记录可能为空，读取时做兼容处理
+FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊断结论',
+          '状态', '数量', '备注']
 
 # 状态常量
+#
+# 三种状态对应设备的三种处境：
+#   未报修  —— 硬件故障，需要报修，自己修不了（红）
+#   待自修  —— 非硬件问题，可自行修复（黄）
+#   已报修  —— 已联系维修，等待处理（橙）
+#   已解决  —— 已完结（绿）
 STATUS_PENDING = '未报修'
+STATUS_SELF_FIX = '待自修'
 STATUS_REPORTED = '已报修'
 STATUS_RESOLVED = '已解决'
 
-ALL_STATUS = [STATUS_PENDING, STATUS_REPORTED, STATUS_RESOLVED]
+ALL_STATUS = [STATUS_PENDING, STATUS_SELF_FIX, STATUS_REPORTED, STATUS_RESOLVED]
+
+# 「未解决」= 设备当前还不能正常使用
+UNRESOLVED_STATUS = [STATUS_PENDING, STATUS_SELF_FIX, STATUS_REPORTED]
+
+# 哪些状态算「非硬件问题、可自行修复」
+# AI 判断为"自己修"的故障会落到这里，不占用报修资源
+SELF_FIXABLE = [STATUS_SELF_FIX]
 
 
 def init_file():
@@ -62,7 +77,15 @@ def init_file():
     migrated = [FIELDS]
     for old_row in rows[1:]:
         mapping = dict(zip(header, old_row))
-        migrated.append([mapping.get(field, '') for field in FIELDS])
+        new_row = []
+        for field in FIELDS:
+            val = mapping.get(field, '')
+            # 「数量」是后加的列：旧记录一律补 1（至少坏了一台），
+            # 留空会让统计台数时算成 0
+            if field == '数量' and not str(val).strip():
+                val = '1'
+            new_row.append(val)
+        migrated.append(new_row)
 
     with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
         csv.writer(f).writerows(migrated)
@@ -95,7 +118,8 @@ def next_id():
     return f'R{num:03d}'
 
 
-def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note='', building=''):
+def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
+               note='', building='', quantity=1):
     """
     新增一条报修记录
 
@@ -106,10 +130,23 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note='', b
       status     - 状态，默认"未报修"
       note       - 备注
       building   - 教学楼名称，如 "教学楼A"（可选）
+      quantity   - 损坏数量，默认 1
+
+    关于 quantity：
+      一台机器一个故障对应一条记录；当同一批损坏原因相同
+      （如"第三排 5 台都开不了机"）时，用数量字段合并记录，
+      避免重复登记 5 条，同时保证统计台数正确。
 
     返回：记录编号
     """
     init_file()
+
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError):
+        quantity = 1
+    if quantity < 1:
+        quantity = 1
 
     # 加锁：编号分配基于当前文件内容，
     # 并发提交时不锁会生成重复编号或丢失记录
@@ -126,10 +163,24 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note='', b
                 symptom,
                 conclusion,
                 status,
+                quantity,
                 note,
             ])
 
     return record_id
+
+
+def get_quantity(record):
+    """
+    读取记录的损坏数量
+
+    兼容旧记录（没有"数量"列，或为空）——一律视为 1 台。
+    """
+    try:
+        q = int(str(record.get('数量') or '').strip())
+        return q if q >= 1 else 1
+    except (TypeError, ValueError):
+        return 1
 
 
 def update_status(record_id, new_status, note=''):
@@ -179,7 +230,7 @@ def update_record(record_id, **fields):
     """
     修改记录的任意字段
 
-    允许改：故障现象、诊断结论、备注、教室、教学楼
+    允许改：故障现象、诊断结论、备注、教室、教学楼、数量
     （状态用 update_status，时间不允许改）
 
     返回：(是否成功, 提示信息)
@@ -190,6 +241,7 @@ def update_record(record_id, **fields):
         '备注': 'note',
         '教室': 'classroom',
         '教学楼': 'building',
+        '数量': 'quantity',
     }
 
     with file_lock(RECORD_FILE):
@@ -204,7 +256,14 @@ def _update_record_locked(record_id, editable, fields):
 
         for cn, en in editable.items():
             if en in fields and fields[en] is not None:
-                r[cn] = str(fields[en]).strip()
+                val = str(fields[en]).strip()
+                # 数量必须是不小于 1 的整数
+                if cn == '数量':
+                    try:
+                        val = str(max(int(val), 1))
+                    except (TypeError, ValueError):
+                        continue
+                r[cn] = val
 
         with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.DictWriter(f, fieldnames=FIELDS)
@@ -236,9 +295,10 @@ def delete_record(record_id):
 # 状态的展示优先级：数字越小越靠前
 #   越需要处理的状态排越前，已完成的沉到底部
 STATUS_ORDER = {
-    STATUS_PENDING: 0,    # 未报修  —— 最需要处理
-    STATUS_REPORTED: 1,   # 已报修  —— 等维修
-    STATUS_RESOLVED: 2,   # 已解决  —— 已完结
+    STATUS_PENDING: 0,     # 未报修  —— 需要报修，最紧急
+    STATUS_SELF_FIX: 1,    # 待自修  —— 可自行处理，稍缓
+    STATUS_REPORTED: 2,    # 已报修  —— 等维修
+    STATUS_RESOLVED: 3,    # 已解决  —— 已完结
 }
 
 
@@ -249,7 +309,7 @@ def sort_records(records, by='priority'):
     参数：
       records - 记录列表
       by      - 排序方式
-                'priority' 按状态分级（默认）：未报修 → 已报修 → 已解决
+                'priority' 按状态分级（默认）：未报修 → 待自修 → 已报修 → 已解决
                            同状态内按时间倒序（最新的在前）
                 'time'     纯按时间倒序
 
@@ -265,6 +325,81 @@ def sort_records(records, by='priority'):
         return (order, _neg_time(r.get('时间', '')))
 
     return sorted(records, key=key)
+
+
+def count_machines(records, statuses=None):
+    """
+    统计一批记录代表的「机器台数」（累加数量字段）
+
+    为什么要按数量累加而不是数记录条数：
+      一条记录可以代表多台同因损坏的机器（如"第三排 5 台都开不了机"），
+      所以台数 = 各记录数量之和，而不是记录条数。
+
+    参数：
+      records  - 记录列表
+      statuses - 只统计这些状态；None 表示全部
+
+    返回：台数
+    """
+    total = 0
+    for r in records:
+        if statuses is not None and r.get('状态') not in statuses:
+            continue
+        total += get_quantity(r)
+    return total
+
+
+def register_faults(building, classroom, causes):
+    """
+    批量登记同一教室的多个损坏原因
+
+    参数：
+      building  - 教学楼
+      classroom - 教室
+      causes    - [{'reason': '原因描述', 'quantity': 3, 'status': '未报修'}, ...]
+
+    返回：(成功条数, 记录编号列表, 错误信息)
+
+    这个函数用于「登记故障」表单：用户在表格里一次填多行，
+    每行是一个损坏原因 + 数量，提交后一次性写入台账。
+    """
+    if not classroom:
+        return 0, [], '请选择教室'
+    if not causes:
+        return 0, [], '请至少填写一条故障'
+
+    ids = []
+    for item in causes:
+        reason = (item.get('reason') or '').strip()
+        if not reason:
+            continue
+
+        try:
+            qty = int(item.get('quantity') or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        if qty < 1:
+            qty = 1
+
+        status = item.get('status') or STATUS_PENDING
+        if status not in ALL_STATUS:
+            status = STATUS_PENDING
+
+        rid = add_record(
+            classroom=classroom,
+            symptom=reason,
+            conclusion=f'原因：{reason}',
+            status=status,
+            note=item.get('note', '') or '',
+            building=building,
+            quantity=qty,
+        )
+        ids.append(rid)
+
+    if not ids:
+        return 0, [], '请至少填写一条有效的故障描述'
+
+    return len(ids), ids, ''
 
 
 def _neg_time(t):

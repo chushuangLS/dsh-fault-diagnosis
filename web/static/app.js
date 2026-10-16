@@ -1191,6 +1191,213 @@ $('#add-building').addEventListener('click', async () => {
 });
 
 // ---------- 教室详情 ----------
+
+/**
+ * 「登记故障」弹窗
+ *
+ * 用表格一次填多条故障：每条 = 损坏原因 + 数量 + 状态。
+ * 相比原来的 prompt() 逐条询问：
+ *   · 能一次登记一批（如"第三排 5 台都开不了机"）
+ *   · 损坏数量有独立字段，统计台数才准确
+ *   · 可以选择状态（未报修 / 待自修）
+ *
+ * @param {string} building  教学楼
+ * @param {string} roomName  教室
+ * @param {Function} onDone  登记成功后的回调（刷新界面）
+ */
+function openFaultForm(building, roomName, onDone) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-mask';
+
+  // 一行故障的 HTML
+  const rowHtml = (idx) => `
+    <tr class="ff-row">
+      <td class="ff-idx">${idx}</td>
+      <td>
+        <input type="text" class="ff-reason" list="ff-common"
+               placeholder="如：电源损坏 / 网线松动 / 显示器无信号">
+      </td>
+      <td class="ff-qty-cell">
+        <input type="number" class="ff-qty" value="1" min="1" max="999">
+      </td>
+      <td>
+        <select class="ff-status">
+          <option value="未报修">未报修（硬件，需报修）</option>
+          <option value="待自修">待自修（可自行修复）</option>
+          <option value="已报修">已报修（已联系维修）</option>
+          <option value="已解决">已解决</option>
+        </select>
+      </td>
+      <td>
+        <button class="ff-del" title="删除这一行">✕</button>
+      </td>
+    </tr>`;
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:760px">
+      <div class="modal-head">
+        <h3>登记故障 · ${escapeHtml(building)} ${escapeHtml(roomName)}</h3>
+        <button class="modal-close" id="ff-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="ff-hint">
+          每行一条故障原因，填写**损坏数量**。同一原因的多台机器填一行即可，
+          不必逐台登记。
+        </p>
+
+        <!-- 常见原因，供输入框自动补全 -->
+        <datalist id="ff-common">
+          <option value="电源损坏"></option>
+          <option value="主板故障"></option>
+          <option value="内存条松动"></option>
+          <option value="硬盘故障"></option>
+          <option value="显示器损坏"></option>
+          <option value="显卡故障"></option>
+          <option value="网线松动"></option>
+          <option value="网口损坏"></option>
+          <option value="键盘失灵"></option>
+          <option value="鼠标失灵"></option>
+          <option value="系统故障需重装"></option>
+          <option value="投影仪无信号"></option>
+          <option value="插座无电"></option>
+          <option value="教室总闸跳闸"></option>
+        </datalist>
+
+        <table class="fault-form-table">
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th>损坏原因</th>
+              <th style="width:90px">数量</th>
+              <th style="width:190px">状态</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody id="ff-body">${rowHtml(1)}</tbody>
+        </table>
+
+        <button class="btn-ghost btn-sm" id="ff-add" style="margin-top:10px">
+          ＋ 添加一行
+        </button>
+
+        <div class="ff-summary" id="ff-summary"></div>
+
+        <div class="tf-actions">
+          <button class="btn-primary btn-sm" id="ff-save">登记</button>
+          <button class="btn-ghost" id="ff-cancel">取消</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const body = overlay.querySelector('#ff-body');
+  const summaryEl = overlay.querySelector('#ff-summary');
+
+  /** 重新编号（删除行之后） */
+  function renumber() {
+    body.querySelectorAll('.ff-row').forEach((tr, i) => {
+      tr.querySelector('.ff-idx').textContent = i + 1;
+    });
+  }
+
+  /** 汇总提示：共几行、合计几台 */
+  function updateSummary() {
+    const rows = body.querySelectorAll('.ff-row');
+    let total = 0;
+    let filled = 0;
+    rows.forEach(tr => {
+      const reason = tr.querySelector('.ff-reason').value.trim();
+      const qty = parseInt(tr.querySelector('.ff-qty').value, 10) || 0;
+      if (reason) { filled += 1; total += Math.max(qty, 0); }
+    });
+    summaryEl.innerHTML = filled
+      ? `共 <b>${filled}</b> 条故障，合计 <b>${total}</b> 台设备`
+      : '';
+  }
+
+  /** 绑定行内事件 */
+  function bindRow(tr) {
+    tr.querySelector('.ff-del').addEventListener('click', () => {
+      // 至少保留一行，否则表单空了没法填
+      if (body.querySelectorAll('.ff-row').length <= 1) {
+        tr.querySelector('.ff-reason').value = '';
+        tr.querySelector('.ff-qty').value = 1;
+        updateSummary();
+        return;
+      }
+      tr.remove();
+      renumber();
+      updateSummary();
+    });
+    tr.querySelector('.ff-reason').addEventListener('input', updateSummary);
+    tr.querySelector('.ff-qty').addEventListener('input', updateSummary);
+  }
+
+  body.querySelectorAll('.ff-row').forEach(bindRow);
+
+  overlay.querySelector('#ff-add').addEventListener('click', () => {
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = rowHtml(0);
+    const tr = tmp.querySelector('.ff-row');
+    body.appendChild(tr);
+    bindRow(tr);
+    renumber();
+    tr.querySelector('.ff-reason').focus();
+  });
+
+  function close() { overlay.remove(); }
+
+  overlay.querySelector('#ff-close').addEventListener('click', close);
+  overlay.querySelector('#ff-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#ff-save').addEventListener('click', async () => {
+    const faults = [];
+    body.querySelectorAll('.ff-row').forEach(tr => {
+      const reason = tr.querySelector('.ff-reason').value.trim();
+      if (!reason) return;   // 空行直接跳过
+      faults.push({
+        reason,
+        quantity: parseInt(tr.querySelector('.ff-qty').value, 10) || 1,
+        status: tr.querySelector('.ff-status').value,
+      });
+    });
+
+    if (!faults.length) {
+      alert('请至少填写一条故障原因');
+      return;
+    }
+
+    const btn = overlay.querySelector('#ff-save');
+    btn.disabled = true;
+    btn.textContent = '登记中…';
+
+    try {
+      const res = await fetch('/api/records/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building, classroom: roomName, faults }),
+      });
+      const d = await res.json();
+      if (!d.ok) {
+        alert(d.message || '登记失败');
+        return;
+      }
+      close();
+      if (onDone) onDone();
+    } catch (err) {
+      alert('登记失败：' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '登记';
+    }
+  });
+
+  updateSummary();
+}
+
 async function openRoomDetail(building, roomName) {
   showRoomView();
   $('#admin-title').textContent = `教室详情 · ${building}-${roomName}`;
@@ -1215,21 +1422,34 @@ async function openRoomDetail(building, roomName) {
   }
 
   const total = info.total || 0;
-  const broken = info.broken || 0;
-  const healthy = Math.max(total - broken, 0);
-  const manual = info.manual_broken || 0;   // 手动登记的
-  const auto = info.auto_broken || 0;       // 报修台账统计的
   const c = d.counts;
+
+  // 三种状态的台数（都来自报修台账，不再有"手动登记"这一路）
+  const selfFix = c.self_fix || 0;          // 待自修（黄）
+  const hardBroken = (c.pending || 0) + (c.reported || 0);  // 需报修（红）
+  const brokenAll = c.unresolved || 0;      // 不能用合计
+  const healthy = Math.max(total - brokenAll, 0);
+
+  // 按状态给记录标颜色
+  const STATUS_CLASS = {
+    '未报修': 'pending',
+    '待自修': 'selffix',
+    '已报修': 'reported',
+    '已解决': 'resolved',
+  };
 
   // 故障明细（含已解决的，方便编辑）
   const causeHtml = d.records.length
     ? d.records.map(r => {
-        const done = r['状态'] === '已解决';
+        const st = r['状态'] || '未报修';
+        const done = st === '已解决';
+        const qty = parseInt(r['数量'], 10) || 1;
         return `
         <div class="cause-item ${done ? 'resolved' : ''}">
           <div class="cause-top">
             <span class="cause-id">${escapeHtml(r['记录编号'])}</span>
-            <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
+            <span class="badge ${STATUS_CLASS[st] || 'pending'}">${escapeHtml(st)}</span>
+            ${qty > 1 ? `<span class="qty-tag">${qty} 台</span>` : ''}
             <span class="cause-time">${escapeHtml(r['时间'])}</span>
           </div>
           <div class="cause-text">
@@ -1240,7 +1460,8 @@ async function openRoomDetail(building, roomName) {
           <div class="cause-actions">
             ${done
               ? `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="未报修">↩ 恢复未报修</button>`
-              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
+              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="待自修">🔧 改为待自修</button>
+                 <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">✓ 标记已解决</button>`}
             <button data-edit-record="${escapeHtml(r['记录编号'])}">编辑</button>
             <button class="del-btn" data-del-record="${escapeHtml(r['记录编号'])}">删除</button>
@@ -1251,12 +1472,21 @@ async function openRoomDetail(building, roomName) {
 
   $('#room-detail').innerHTML = `
     <h4>${escapeHtml(building)} · ${escapeHtml(roomName)}</h4>
-    <div class="sub-line">损坏总数 = 手动登记 ${manual} 台 + 报修台账 ${auto} 台</div>
+    <div class="sub-line">设备状态由报修台账自动统计，无需手工填写损坏数</div>
 
-    <div class="detail-stats">
-      <div class="detail-stat tot"><div class="dv">${total}</div><div class="dl">电脑总数</div></div>
-      <div class="detail-stat ok"><div class="dv">${healthy}</div><div class="dl">正常</div></div>
-      <div class="detail-stat bad"><div class="dv">${broken}</div><div class="dl">损坏合计</div></div>
+    <div class="detail-stats detail-stats-4">
+      <div class="detail-stat tot">
+        <div class="dv">${total}</div><div class="dl">电脑总数</div>
+      </div>
+      <div class="detail-stat ok">
+        <div class="dv">${healthy}</div><div class="dl">正常</div>
+      </div>
+      <div class="detail-stat selffix">
+        <div class="dv">${selfFix}</div><div class="dl">🔧 待自修</div>
+      </div>
+      <div class="detail-stat bad">
+        <div class="dv">${hardBroken}</div><div class="dl">⚠ 需报修</div>
+      </div>
     </div>
 
     <div id="room-chart"></div>
@@ -1268,10 +1498,11 @@ async function openRoomDetail(building, roomName) {
       </div>
       <div class="cause-summary">
         <span>未报修 <b>${c.pending}</b></span>
+        <span class="sm-selffix">待自修 <b>${c.self_fix}</b></span>
         <span>已报修 <b>${c.reported}</b></span>
         <span>已解决 <b>${c.resolved}</b></span>
         <span style="margin-left:auto;color:var(--text-faint)">
-          手动登记 <b>${manual}</b> 台｜台账 <b>${auto}</b> 台
+          不能用合计 <b>${brokenAll}</b> 台
         </span>
       </div>
       <div class="cause-list">${causeHtml}</div>
@@ -1281,10 +1512,6 @@ async function openRoomDetail(building, roomName) {
       <div class="edit-field">
         <label>电脑总数</label>
         <input type="number" id="edit-total" value="${total}" min="0">
-      </div>
-      <div class="edit-field">
-        <label>手动登记损坏数</label>
-        <input type="number" id="edit-broken" value="${manual}" min="0">
       </div>
       <div class="edit-field" style="grid-column:1/-1">
         <label>备注</label>
@@ -1298,11 +1525,11 @@ async function openRoomDetail(building, roomName) {
     </div>
   `;
 
-  // 环形图
+  // 环形图：正常 / 待自修 / 需报修 三段
   roomChart = echarts.init($('#room-chart'));
   roomChart.setOption({
     textStyle: { color: '#8b98a5' },
-    tooltip: { trigger: 'item' },
+    tooltip: { trigger: 'item', formatter: '{b}：{c} 台 ({d}%)' },
     legend: { bottom: 0, textStyle: { color: '#8b98a5' }, itemWidth: 12, itemHeight: 12 },
     series: [{
       type: 'pie',
@@ -1312,7 +1539,8 @@ async function openRoomDetail(building, roomName) {
       label: { show: false },
       data: [
         { value: healthy, name: '正常', itemStyle: { color: '#22c55e' } },
-        { value: broken, name: '损坏', itemStyle: { color: '#ef4444' } },
+        { value: selfFix, name: '待自修', itemStyle: { color: '#eab308' } },
+        { value: hardBroken, name: '需报修', itemStyle: { color: '#ef4444' } },
       ].filter(x => x.value > 0),
     }],
   });
@@ -1370,29 +1598,16 @@ async function openRoomDetail(building, roomName) {
     });
   });
 
-  // 手动登记一条故障
-  $('#add-record').addEventListener('click', async () => {
-    const symptom = prompt('故障现象（如：第 5 台电脑无法开机）：');
-    if (!symptom) return;
-    const conclusion = prompt('诊断结论 / 原因（可留空）：', '人工登记，待排查') || '人工登记，待排查';
-
-    const res2 = await fetch('/api/records/manual', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        building, classroom: roomName,
-        symptom, conclusion,
-        status: '未报修',
-      }),
+  // 登记故障（弹窗表格：原因 + 数量，可一次填多行）
+  $('#add-record').addEventListener('click', () => {
+    openFaultForm(building, roomName, () => {
+      openRoomDetail(building, roomName);
+      refreshDrawerStats();
+      if (classroomCache) loadClassrooms();
     });
-    const d2 = await res2.json();
-    if (!d2.ok) { alert(d2.message); return; }
-    openRoomDetail(building, roomName);
-    refreshDrawerStats();
-    if (classroomCache) loadClassrooms();
   });
 
-  // 保存（总数 / 手动登记损坏数 / 备注）
+  // 保存（电脑总数 / 备注）—— 损坏台数由台账推导，不在这里填
   $('#save-room').addEventListener('click', async () => {
     const res2 = await fetch('/api/classrooms/room', {
       method: 'PUT',
@@ -1401,7 +1616,6 @@ async function openRoomDetail(building, roomName) {
         building,
         name: roomName,
         total: $('#edit-total').value,
-        broken: $('#edit-broken').value,
         note: $('#edit-note').value,
       }),
     });

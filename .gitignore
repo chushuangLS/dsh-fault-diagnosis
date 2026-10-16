@@ -52,6 +52,9 @@ data/fault_cases_auto.json.lock
 # 导出的报表（运行时产物，含真实教室与故障信息）
 exports/
 
+# 文件锁（并发写入保护用的空文件，运行时生成）
+*.lock
+
 # 测试与缓存
 .pytest_cache/
 .coverage
