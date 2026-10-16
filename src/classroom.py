@@ -26,6 +26,8 @@
 import json
 import os
 
+from filelock import file_lock
+
 DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'classrooms.json')
 
 
@@ -62,6 +64,11 @@ def add_building(name):
     if not name:
         return False, '教学楼名称不能为空'
 
+    with file_lock(DATA_FILE):
+        return _add_building_locked(name)
+
+
+def _add_building_locked(name):
     data = load()
     if any(b['name'] == name for b in data['buildings']):
         return False, f'教学楼「{name}」已存在'
@@ -73,6 +80,11 @@ def add_building(name):
 
 def delete_building(name):
     """删除教学楼（连同其下教室）"""
+    with file_lock(DATA_FILE):
+        return _delete_building_locked(name)
+
+
+def _delete_building_locked(name):
     data = load()
     before = len(data['buildings'])
     data['buildings'] = [b for b in data['buildings'] if b['name'] != name]
@@ -103,6 +115,11 @@ def add_room(building, room_name, total=0, broken=0, note=''):
     if broken > total:
         return False, '损坏数不能大于总数'
 
+    with file_lock(DATA_FILE):
+        return _add_room_locked(building, room_name, total, broken, note)
+
+
+def _add_room_locked(building, room_name, total, broken, note):
     data = load()
     for b in data['buildings']:
         if b['name'] == building:
@@ -122,6 +139,11 @@ def add_room(building, room_name, total=0, broken=0, note=''):
 
 def update_room(building, room_name, total=None, broken=None, note=None):
     """修改教室信息"""
+    with file_lock(DATA_FILE):
+        return _update_room_locked(building, room_name, total, broken, note)
+
+
+def _update_room_locked(building, room_name, total=None, broken=None, note=None):
     data = load()
     for b in data['buildings']:
         if b['name'] != building:
@@ -162,6 +184,11 @@ def update_room(building, room_name, total=None, broken=None, note=None):
 
 def delete_room(building, room_name):
     """删除教室"""
+    with file_lock(DATA_FILE):
+        return _delete_room_locked(building, room_name)
+
+
+def _delete_room_locked(building, room_name):
     data = load()
     for b in data['buildings']:
         if b['name'] != building:

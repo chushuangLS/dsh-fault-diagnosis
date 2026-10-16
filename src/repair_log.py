@@ -13,6 +13,8 @@ import csv
 import os
 from datetime import datetime
 
+from filelock import file_lock
+
 # 记录文件路径
 RECORD_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'repair_records.csv')
 
@@ -108,20 +110,24 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING, note='', b
     返回：记录编号
     """
     init_file()
-    record_id = next_id()
 
-    with open(RECORD_FILE, 'a', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            record_id,
-            datetime.now().strftime('%Y-%m-%d %H:%M'),
-            building or '',
-            classroom,
-            symptom,
-            conclusion,
-            status,
-            note,
-        ])
+    # 加锁：编号分配基于当前文件内容，
+    # 并发提交时不锁会生成重复编号或丢失记录
+    with file_lock(RECORD_FILE):
+        record_id = next_id()
+
+        with open(RECORD_FILE, 'a', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                record_id,
+                datetime.now().strftime('%Y-%m-%d %H:%M'),
+                building or '',
+                classroom,
+                symptom,
+                conclusion,
+                status,
+                note,
+            ])
 
     return record_id
 
@@ -140,6 +146,11 @@ def update_status(record_id, new_status, note=''):
     if new_status not in ALL_STATUS:
         return False, f"状态必须是：{'/'.join(ALL_STATUS)}"
 
+    with file_lock(RECORD_FILE):
+        return _update_status_locked(record_id, new_status, note)
+
+
+def _update_status_locked(record_id, new_status, note):
     records = load_records()
     found = False
 
@@ -181,6 +192,11 @@ def update_record(record_id, **fields):
         '教学楼': 'building',
     }
 
+    with file_lock(RECORD_FILE):
+        return _update_record_locked(record_id, editable, fields)
+
+
+def _update_record_locked(record_id, editable, fields):
     records = load_records()
     for r in records:
         if r['记录编号'] != record_id:
@@ -202,18 +218,19 @@ def update_record(record_id, **fields):
 
 def delete_record(record_id):
     """删除一条记录"""
-    records = load_records()
-    kept = [r for r in records if r['记录编号'] != record_id]
+    with file_lock(RECORD_FILE):
+        records = load_records()
+        kept = [r for r in records if r['记录编号'] != record_id]
 
-    if len(kept) == len(records):
-        return False, f'未找到记录 {record_id}'
+        if len(kept) == len(records):
+            return False, f'未找到记录 {record_id}'
 
-    with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
-        writer.writeheader()
-        writer.writerows(kept)
+        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerows(kept)
 
-    return True, f'记录 {record_id} 已删除'
+        return True, f'记录 {record_id} 已删除'
 
 
 # 状态的展示优先级：数字越小越靠前

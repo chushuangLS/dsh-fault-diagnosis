@@ -18,6 +18,8 @@ import os
 import uuid
 from datetime import datetime
 
+from filelock import file_lock
+
 DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'daily_tasks.json')
 
 # 状态
@@ -109,26 +111,30 @@ def add_task(building='', room='', task_type='', teacher='', major='',
     if priority not in ALL_PRIORITY:
         priority = PRIORITY_MID
 
-    data = load()
-    tid = _next_id(data['tasks'])
+    # 加锁：编号分配依赖「读到的当前内容」，
+    # 并发时若不锁，两个请求可能拿到同一个编号
+    with file_lock(DATA_FILE):
+        data = load()
+        tid = _next_id(data['tasks'])
 
-    data['tasks'].append({
-        'id': tid,
-        'building': (building or '').strip(),
-        'room': room,
-        'task_type': task_type,
-        'teacher': (teacher or '').strip(),
-        'major': (major or '').strip(),
-        'detail': (detail or '').strip(),
-        'due': (due or '').strip(),
-        'priority': priority,
-        'status': STATUS_PENDING,
-        'created': datetime.now().strftime('%Y-%m-%d %H:%M'),
-        'finished': '',
-        'note': '',
-    })
+        data['tasks'].append({
+            'id': tid,
+            'building': (building or '').strip(),
+            'room': room,
+            'task_type': task_type,
+            'teacher': (teacher or '').strip(),
+            'major': (major or '').strip(),
+            'detail': (detail or '').strip(),
+            'due': (due or '').strip(),
+            'priority': priority,
+            'status': STATUS_PENDING,
+            'created': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'finished': '',
+            'note': '',
+        })
 
-    save(data)
+        save(data)
+
     return True, tid
 
 
@@ -139,36 +145,40 @@ def update_task(tid, **fields):
     允许修改：building / room / task_type / teacher / major /
              detail / due / priority / status / note
     """
-    data = load()
+    with file_lock(DATA_FILE):
+        data = load()
 
-    for t in data['tasks']:
-        if t['id'] != tid:
-            continue
+        for t in data['tasks']:
+            if t['id'] != tid:
+                continue
 
-        # 状态切换时记录完成时间
-        if 'status' in fields and fields['status'] != t.get('status'):
-            new_status = fields['status']
-            if new_status not in ALL_STATUS:
-                return False, f'状态必须是：{" / ".join(ALL_STATUS)}'
-            t['status'] = new_status
-            t['finished'] = (
-                datetime.now().strftime('%Y-%m-%d %H:%M')
-                if new_status == STATUS_DONE else ''
-            )
+            # 状态切换时记录完成时间
+            if 'status' in fields and fields['status'] != t.get('status'):
+                new_status = fields['status']
+                if new_status not in ALL_STATUS:
+                    return False, f'状态必须是：{" / ".join(ALL_STATUS)}'
+                t['status'] = new_status
+                t['finished'] = (
+                    datetime.now().strftime('%Y-%m-%d %H:%M')
+                    if new_status == STATUS_DONE else ''
+                )
 
-        for k in ('building', 'room', 'task_type', 'teacher', 'major',
-                  'detail', 'due', 'priority', 'note'):
-            if k in fields and fields[k] is not None:
-                t[k] = str(fields[k]).strip()
+            for k in ('building', 'room', 'task_type', 'teacher', 'major',
+                      'detail', 'due', 'priority', 'note'):
+                if k in fields and fields[k] is not None:
+                    t[k] = str(fields[k]).strip()
 
-        save(data)
-        return True, f'已更新 {tid}'
+            save(data)
+            return True, f'已更新 {tid}'
 
-    return False, f'未找到任务 {tid}'
+        return False, f'未找到任务 {tid}'
 
 
 def toggle_status(tid):
     """在「待完成」和「已完成」之间切换"""
+    # 注意：update_task 自己会加锁，这里不能再套一层，
+    # 否则同一进程内重复加同一个文件锁可能死锁。
+    # 因此本函数只做「读当前状态」，写操作交给 update_task。
     data = load()
     for t in data['tasks']:
         if t['id'] != tid:
@@ -182,15 +192,16 @@ def toggle_status(tid):
 
 def delete_task(tid):
     """删除任务"""
-    data = load()
-    before = len(data['tasks'])
-    data['tasks'] = [t for t in data['tasks'] if t['id'] != tid]
+    with file_lock(DATA_FILE):
+        data = load()
+        before = len(data['tasks'])
+        data['tasks'] = [t for t in data['tasks'] if t['id'] != tid]
 
-    if len(data['tasks']) == before:
-        return False, f'未找到任务 {tid}'
+        if len(data['tasks']) == before:
+            return False, f'未找到任务 {tid}'
 
-    save(data)
-    return True, f'已删除 {tid}'
+        save(data)
+        return True, f'已删除 {tid}'
 
 
 def list_tasks(status=None, room=None):

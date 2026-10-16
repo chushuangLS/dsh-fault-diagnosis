@@ -1,0 +1,11 @@
+# 开发与测试依赖
+#
+# 安装：
+#   pip install -r requirements-dev.txt
+#
+# 运行测试：
+#   python -m pytest tests -v
+
+-r requirements.txt
+
+pytest>=8.0.0

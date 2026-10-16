@@ -11,6 +11,7 @@
 
 import os
 import json
+import time
 
 from openai import OpenAI
 
@@ -204,6 +205,7 @@ class DiagnosisSession:
         self._knowledge_injected = False     # 是否已注入检索结果
         self.use_knowledge = use_knowledge
         self.knowledge_hits = []   # 本次命中的历史案例
+        self.last_active = time.time()   # 最后活动时间（供 Web 端会话清理）
 
         # 初始化：只放系统提示词
         # 知识库不在这里注入 —— 因为此时还不知道用户要问什么，

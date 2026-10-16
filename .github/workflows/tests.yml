@@ -1,0 +1,36 @@
+name: tests
+
+# 每次推送到 main、以及所有 PR 都跑一遍测试
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows 也要测：项目主要在 Windows 机房环境使用，
+        # 且文件锁在 Windows 上走的是 msvcrt 分支，与 Linux 不同
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: 运行测试
+        # 测试不调用真实大模型 API，因此不需要配置 DEEPSEEK_API_KEY
+        run: python -m pytest tests -v

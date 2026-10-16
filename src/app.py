@@ -14,6 +14,7 @@
 import json
 import os
 import sys
+import time
 import uuid
 
 from flask import Flask, request, jsonify, render_template, session
@@ -39,19 +40,65 @@ app = Flask(
 )
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-me')
 
+# 默认密钥只适合本机自用。若部署到能被他人访问的环境，
+# 任何人都能伪造 session。这里在启动时明确警告，避免被忽略。
+if app.secret_key == 'dev-secret-change-me':
+    print('[警告] 正在使用默认 FLASK_SECRET_KEY，仅适合本机演示。')
+    print('       部署到内网或公网前，请先设置环境变量 FLASK_SECRET_KEY。')
+
 # 会话存储：session_id -> DiagnosisSession
 # 说明：内存存储，重启服务后丢失。对于机房现场使用足够。
 #       后续如需持久化可改为文件或数据库。
 SESSIONS = {}
+
+# 单个会话的空闲存活时间（秒）与最大会话数
+#
+# 为什么需要限制：
+#   会话原先只在「诊断结束」或「重置」时被移除。
+#   但用户提出故障后直接关闭浏览器（很常见）不会触发任何清理，
+#   该会话就会永久驻留 —— 每个都持有完整对话历史和 OpenAI 客户端对象，
+#   长期运行会导致内存持续增长。
+SESSION_TTL = 2 * 60 * 60      # 2 小时无活动即回收
+MAX_SESSIONS = 200             # 上限，超出后淘汰最旧的
+
+
+def _purge_sessions():
+    """
+    清理过期会话与超量会话
+
+    在每次创建新会话前调用，无需后台线程。
+    """
+    now = time.time()
+
+    # 1) 过期清理
+    expired = [
+        sid for sid, s in SESSIONS.items()
+        if now - getattr(s, 'last_active', now) > SESSION_TTL
+    ]
+    for sid in expired:
+        SESSIONS.pop(sid, None)
+
+    # 2) 超量清理：淘汰最久未活动的
+    if len(SESSIONS) > MAX_SESSIONS:
+        ordered = sorted(
+            SESSIONS.items(),
+            key=lambda kv: getattr(kv[1], 'last_active', 0),
+        )
+        for sid, _ in ordered[:len(SESSIONS) - MAX_SESSIONS]:
+            SESSIONS.pop(sid, None)
 
 
 def get_session():
     """获取或创建当前浏览器的诊断会话"""
     sid = session.get('sid')
     if not sid or sid not in SESSIONS:
+        _purge_sessions()
         sid = str(uuid.uuid4())
         session['sid'] = sid
         SESSIONS[sid] = DiagnosisSession()
+
+    # 记录活动时间，供过期清理使用
+    SESSIONS[sid].last_active = time.time()
     return SESSIONS[sid]
 
 

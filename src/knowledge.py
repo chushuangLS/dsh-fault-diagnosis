@@ -25,6 +25,8 @@ import os
 import re
 from datetime import datetime
 
+from filelock import file_lock
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 # 手工维护的知识库（提交进 git，人工编辑、评审、回滚）
@@ -613,45 +615,19 @@ def _append_auto_case(case):
     """
     把一条案例追加到自动沉淀文件
 
-    用「读-改-写 + 文件锁」保证并发安全：
+    用「文件锁 + 读-改-写」保证并发安全：
     Flask 默认多线程，两个诊断同时结束时会并发写同一个文件，
     没有锁的话后写的会覆盖先写的，丢掉案例。
+
+    加锁工具统一由 filelock 模块提供，与其他模块行为一致。
     """
     os.makedirs(os.path.dirname(AUTO_FILE), exist_ok=True)
 
-    lock_path = AUTO_FILE + '.lock'
-    with open(lock_path, 'w') as lock:
-        _lock(lock)
-        try:
-            # 拿到锁之后再读，确保基于最新内容追加
-            data = _load_auto()
-            data.setdefault('cases', []).append(case)
-            _write_auto(data)
-        finally:
-            _unlock(lock)
-
-
-def _lock(fh):
-    """给文件加排他锁（跨平台）"""
-    try:
-        import fcntl
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-    except ImportError:
-        # Windows 没有 fcntl，用 msvcrt 的锁字节
-        import msvcrt
-        fh.seek(0)
-        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
-
-
-def _unlock(fh):
-    """解锁"""
-    try:
-        import fcntl
-        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-    except ImportError:
-        import msvcrt
-        fh.seek(0)
-        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    with file_lock(AUTO_FILE):
+        # 拿到锁之后再读，确保基于最新内容追加
+        data = _load_auto()
+        data.setdefault('cases', []).append(case)
+        _write_auto(data)
 
 
 def stats():
