@@ -1493,11 +1493,22 @@ async function openRoomDetail(building, roomName) {
   const total = info.total || 0;
   const c = d.counts;
 
-  // 三种状态的台数（都来自报修台账，不再有"手动登记"这一路）
-  const selfFix = c.self_fix || 0;          // 可自修（黄）
-  const hardBroken = (c.pending || 0) + (c.reported || 0);  // 需报修（红）
-  const brokenAll = c.unresolved || 0;      // 不能用合计
-  const healthy = Math.max(total - brokenAll, 0);
+  // 设备分两类，四张卡片按「总数 → 正常 → 损坏」的层级展示
+  //
+  //   电脑总数
+  //   ├─ 正常        （已解决 = 修好了）
+  //   └─ 损坏        ← 红色，表示"这台是坏的"，与报没报修无关
+  //        ├─ 未报修    （还没安排）
+  //        ├─ 可自修    （自己能修）
+  //        └─ 已报修    （已送修）
+  //
+  // 关键：「损坏」= 未报修 + 可自修 + 已报修，
+  //       所以 正常 + 损坏 = 电脑总数，账目能直接对上。
+  //       之前这里叫「需报修」，但已报修的那几台并不需要再报修，
+  //       名称与实际含义不符。
+  const broken = c.unresolved || 0;         // 损坏合计（红色）
+  const healthy = Math.max(total - broken, 0);
+  const selfFix = c.self_fix || 0;          // 其中"可自修"的台数（黄色）
 
   // 状态类名统一由全局 statusClass() 提供，避免两处定义不一致
 
@@ -1551,8 +1562,8 @@ async function openRoomDetail(building, roomName) {
         <div class="dl">${icon('i-wrench', 13)} 可自修</div>
       </div>
       <div class="detail-stat bad">
-        <div class="dv">${hardBroken}</div>
-        <div class="dl">${icon('i-alert', 13)} 需报修</div>
+        <div class="dv">${broken}</div>
+        <div class="dl">${icon('i-alert', 13)} 损坏</div>
       </div>
     </div>
 
@@ -1569,7 +1580,7 @@ async function openRoomDetail(building, roomName) {
         <span>已报修 <b>${c.reported}</b></span>
         <span>已解决 <b>${c.resolved}</b></span>
         <span style="margin-left:auto;color:var(--text-faint)">
-          不能用合计 <b>${brokenAll}</b> 台
+          损坏合计 <b>${broken}</b> 台
         </span>
       </div>
       <div class="cause-list">${causeHtml}</div>
@@ -1592,7 +1603,7 @@ async function openRoomDetail(building, roomName) {
     </div>
   `;
 
-  // 环形图：正常 / 可自修 / 需报修 三段
+  // 环形图：正常 / 可自修 / 损坏 三段（加起来等于电脑总数）
   roomChart = echarts.init($('#room-chart'));
   roomChart.setOption({
     textStyle: { color: '#8b98a5' },
@@ -1607,7 +1618,12 @@ async function openRoomDetail(building, roomName) {
       data: [
         { value: healthy, name: '正常', itemStyle: { color: '#22c55e' } },
         { value: selfFix, name: '可自修', itemStyle: { color: '#eab308' } },
-        { value: hardBroken, name: '需报修', itemStyle: { color: '#ef4444' } },
+        // 剩下的是"坏了且需要送修"的部分（未报修 + 已报修）
+        {
+          value: Math.max(broken - selfFix, 0),
+          name: '损坏',
+          itemStyle: { color: '#ef4444' },
+        },
       ].filter(x => x.value > 0),
     }],
   });
