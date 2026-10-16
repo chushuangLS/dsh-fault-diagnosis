@@ -537,14 +537,19 @@ button:disabled { cursor: not-allowed; }
    收起：只显示图标的一条窄栏（--rail-w 宽）
    展开：显示文字，浮在内容之上（不挤压布局，避免内容跳动）
 
+   尺寸：高度**自适应内容**并垂直居中，不拉满整屏 ——
+        之前用 top/bottom 撑满，屏幕上会拖出一条很长的空栏，
+        既占地方又显得空。
+   位置：默认右侧居中；长按品牌区可拖到任意位置，位置会被记住。
+
    展开触发：鼠标靠近右侧热区，或悬停在栏上
    收起：鼠标移开后延迟 260ms，避免掠过时频繁弹动
    ============================================================ */
 .rail {
   position: fixed;
-  top: 14px;
   right: 14px;
-  bottom: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 70;
 
   width: var(--rail-w);
@@ -560,10 +565,37 @@ button:disabled { cursor: not-allowed; }
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
 
+  /* 高度随内容，超出视口时才滚动 */
+  max-height: calc(100vh - 28px);
   overflow: hidden;
   transition: width 0.34s var(--ease),
               box-shadow 0.34s var(--ease);
 }
+
+/* 拖动中：关掉过渡，否则跟手会"发飘" */
+.rail.dragging {
+  transition: none;
+  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.85),
+              0 0 0 1px rgba(59, 130, 246, 0.28);
+}
+
+/* 品牌区是拖动手柄 */
+.rail-brand { cursor: grab; }
+.rail-brand:active { cursor: grabbing; }
+
+/* 拖动手柄图标：收起到右侧，展开时淡入 */
+.rail-grip {
+  margin-left: auto;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.22s var(--ease);
+  flex-shrink: 0;
+}
+.rail.expanded .rail-grip { opacity: 0.5; }
+.rail-brand:hover .rail-grip { opacity: 0.9; }
+
+/* 被拖动过：用边框提示"位置已改"，并给出恢复方式 */
+.rail.moved { border-color: rgba(59, 130, 246, 0.32); }
 
 /* 展开态 */
 .rail.expanded {

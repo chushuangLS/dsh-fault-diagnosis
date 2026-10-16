@@ -118,6 +118,180 @@ railEl.addEventListener('focusin', expandRail);
 railEl.addEventListener('focusout', scheduleCollapseRail);
 
 /* ============================================================
+   侧边栏拖拽（长按品牌区拖动）
+
+   为什么用长按而不是直接拖：
+     侧边栏里全是按钮，直接拖会在点击时误触发位移。
+
+   为什么拖动的是 left/top 而不是 right/top：
+     一旦用户把栏拖到屏幕中间，"距右边缘的距离"就没有意义了。
+     统一改成以左上角定位，拖拽和恢复都用同一套坐标。
+
+   位置保存在 localStorage，刷新后仍在原处。
+   ============================================================ */
+const RAIL_POS_KEY = 'rail-position';
+
+/** 长按多久算作拖动意图（毫秒） */
+const RAIL_HOLD_MS = 180;
+
+/** 超出这个位移才认为是真的在拖（避免手抖） */
+const RAIL_MOVE_TOLERANCE = 4;
+
+const railBrand = $('#rail-home');
+
+/** 把 left/top 换算成 CSS 值，并保证整个栏都在视口内 */
+function clampRailPos(left, top) {
+  const r = railEl.getBoundingClientRect();
+  const maxLeft = window.innerWidth - r.width - 6;
+  const maxTop = window.innerHeight - r.height - 6;
+  return {
+    left: Math.min(Math.max(left, 6), Math.max(maxLeft, 6)),
+    top: Math.min(Math.max(top, 6), Math.max(maxTop, 6)),
+  };
+}
+
+/** 应用位置：切到以左上角定位 */
+function applyRailPos(left, top) {
+  railEl.style.left = left + 'px';
+  railEl.style.top = top + 'px';
+  railEl.style.right = 'auto';
+  railEl.style.transform = 'none';
+  railEl.classList.add('moved');
+}
+
+/** 恢复默认位置：右侧、垂直居中 */
+function resetRailPos() {
+  railEl.style.left = '';
+  railEl.style.top = '';
+  railEl.style.right = '';
+  railEl.style.transform = '';
+  railEl.classList.remove('moved');
+  try {
+    localStorage.removeItem(RAIL_POS_KEY);
+  } catch { /* 隐私模式下可能不可用 */ }
+}
+
+// 启动时恢复上次位置
+(function restoreRailPos() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(RAIL_POS_KEY) || 'null');
+  } catch { /* 忽略损坏的数据 */ }
+
+  if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+    // 等布局完成后再定位，否则拿到的尺寸是 0
+    requestAnimationFrame(() => {
+      const p = clampRailPos(saved.left, saved.top);
+      applyRailPos(p.left, p.top);
+    });
+  }
+})();
+
+// 窗口尺寸变化时，把栏重新约束回视口内
+window.addEventListener('resize', () => {
+  if (!railEl.classList.contains('moved')) return;
+  const r = railEl.getBoundingClientRect();
+  const p = clampRailPos(r.left, r.top);
+  applyRailPos(p.left, p.top);
+});
+
+if (railBrand) {
+  let holdTimer = null;
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let originLeft = 0, originTop = 0;
+  let movedEnough = false;
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    railEl.classList.remove('dragging');
+
+    if (movedEnough) {
+      const r = railEl.getBoundingClientRect();
+      try {
+        localStorage.setItem(RAIL_POS_KEY,
+          JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
+      } catch { /* 存不下就算了，不影响使用 */ }
+    }
+  };
+
+  railBrand.addEventListener('pointerdown', (e) => {
+    // 只响应左键
+    if (e.button !== 0) return;
+
+    startX = e.clientX;
+    startY = e.clientY;
+    movedEnough = false;
+
+    const r = railEl.getBoundingClientRect();
+    originLeft = r.left;
+    originTop = r.top;
+
+    // 长按计时：到时间才进入拖动状态
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      dragging = true;
+      railEl.classList.add('dragging');
+      // 拖动期间保持展开，方便看清整个栏
+      expandRail();
+    }, RAIL_HOLD_MS);
+  });
+
+  document.addEventListener('pointermove', (e) => {
+    if (!dragging) {
+      // 还没进入拖动：若位移过大，说明用户只是想点一下，取消长按
+      if (holdTimer && (Math.abs(e.clientX - startX) > RAIL_MOVE_TOLERANCE
+                     || Math.abs(e.clientY - startY) > RAIL_MOVE_TOLERANCE)) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      return;
+    }
+
+    e.preventDefault();
+    movedEnough = true;
+
+    const p = clampRailPos(
+      originLeft + (e.clientX - startX),
+      originTop + (e.clientY - startY),
+    );
+    applyRailPos(p.left, p.top);
+  });
+
+  const cancelHold = () => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+  };
+
+  railBrand.addEventListener('pointerup', () => {
+    cancelHold();
+    endDrag();
+  });
+  railBrand.addEventListener('pointercancel', () => {
+    cancelHold();
+    endDrag();
+  });
+  document.addEventListener('pointerup', endDrag);
+
+  // 拖动中不要触发"点击返回首页"
+  railBrand.addEventListener('click', (e) => {
+    if (movedEnough) {
+      e.preventDefault();
+      e.stopPropagation();
+      movedEnough = false;
+    }
+  }, true);
+
+  // 双击品牌区 → 恢复默认位置（拖丢了能找回来）
+  railBrand.addEventListener('dblclick', () => {
+    resetRailPos();
+  });
+}
+
+/* ============================================================
    视图切换
    ============================================================ */
 function switchView(view) {

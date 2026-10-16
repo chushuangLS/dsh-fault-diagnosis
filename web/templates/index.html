@@ -178,6 +178,16 @@
           fill="none" stroke="currentColor" stroke-width="1.6"
           stroke-linecap="round"/>
   </symbol>
+
+  <!-- 拖动手柄：六个点，暗示"可以拖" -->
+  <symbol id="i-grip" viewBox="0 0 24 24">
+    <circle cx="9" cy="6" r="1.4" fill="currentColor"/>
+    <circle cx="15" cy="6" r="1.4" fill="currentColor"/>
+    <circle cx="9" cy="12" r="1.4" fill="currentColor"/>
+    <circle cx="15" cy="12" r="1.4" fill="currentColor"/>
+    <circle cx="9" cy="18" r="1.4" fill="currentColor"/>
+    <circle cx="15" cy="18" r="1.4" fill="currentColor"/>
+  </symbol>
 </svg>
 
 <!-- ============================================================
@@ -482,14 +492,18 @@
 
   <aside id="rail" class="rail" aria-label="主导航">
 
-    <!-- 顶部：标识 + 返回首页 -->
-    <button class="rail-brand" id="rail-home" title="返回首页">
+    <!-- 顶部：标识 + 返回首页；长按这里可拖动整个侧边栏 -->
+    <button class="rail-brand" id="rail-home"
+            title="点击返回首页 · 长按可拖动 · 双击复位">
       <span class="rail-icon">
         <svg class="icon" width="20" height="20"><use href="#i-tool"/></svg>
       </span>
       <span class="rail-text">
         <b>诊断助手</b>
-        <i>返回首页</i>
+        <i>长按可拖动</i>
+      </span>
+      <span class="rail-grip" aria-hidden="true">
+        <svg class="icon" width="14" height="14"><use href="#i-grip"/></svg>
       </span>
     </button>
 
