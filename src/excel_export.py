@@ -1,23 +1,32 @@
 """
 机房故障智能诊断助手 - 报修记录导出（Excel）
 
-导出内容围绕「一眼看清现状」设计，共 5 个工作表：
+设计目标：**给领导看的一页纸**
+  领导不关心修没修，只关心「现在有多少台能用」。
+  因此导出只有一张表，一间教室一行，一眼看出每间教室的现状。
 
-  1. 故障总表        按「未报修 → 已报修 → 已解决」排序，
-                     每段内按「教学楼 → 教室」分组
-  2. 教室现状        每间教室有多少台能用 / 不能用
-  3. 损坏明细        不能用的一一对应：机位、损坏时间、原因
-  4. 故障统计        每间教室的历史故障原因与次数
-  5. 未录入台账的故障 教室号对不上台账的记录（单独列出，不丢数据）
+表格结构（按教学楼分组，同一教学楼只显示一次）：
+
+    ┌────────┬───────┬────────┬──────┬──────┬──────────────────┐
+    │ 教学楼  │ 教室   │ 设备总数 │ 正常 │ 损坏 │ 损坏原因          │
+    ├────────┼───────┼────────┼──────┼──────┼──────────────────┤
+    │        │ 101   │   80   │  77  │   3  │ 电源损坏 ×3       │
+    │ 实验楼A │───────┼────────┼──────┼──────┼──────────────────┤
+    │        │ 102   │   80   │  80  │   0  │ —                │
+    └────────┴───────┴────────┴──────┴──────┴──────────────────┘
+
+状态归类（关键约定）：
+  · 未报修 / 待自修 / 已报修  →  损坏
+  · 已解决                   →  正常
+  这样「正常 + 损坏 = 设备总数」，领导一眼能对上账。
 
 数据来源：
-  · repair_records.csv  报修台账
-  · classrooms.json     教室与设备台账（电脑总数）
+  · repair_records.csv  报修台账（损坏台数与原因）
+  · classrooms.json     教室台账（设备总数）
 
 作者：liyishuo1
 """
 
-import csv
 import io
 import os
 import re
@@ -33,24 +42,45 @@ import repair_log
 
 # ---------------- 样式 ----------------
 
-# 状态配色：未报修（红）最需要处理，待自修（黄）可自行解决，
-# 已报修（橙）在等维修，已解决（绿）完结
-STATUS_FILL = {
-    repair_log.STATUS_PENDING: PatternFill('solid', fgColor='FFC7CE'),
-    repair_log.STATUS_SELF_FIX: PatternFill('solid', fgColor='FFE699'),
-    repair_log.STATUS_REPORTED: PatternFill('solid', fgColor='FFD8A8'),
-    repair_log.STATUS_RESOLVED: PatternFill('solid', fgColor='C6EFCE'),
-}
+# 表头：深蓝底白字，稳重（给领导看的报表不用花哨配色）
+HEADER_FILL = PatternFill('solid', fgColor='2F5597')
+HEADER_FONT = Font(color='FFFFFF', bold=True, size=12)
 
-HEADER_FILL = PatternFill('solid', fgColor='4472C4')
-HEADER_FONT = Font(color='FFFFFF', bold=True, size=11)
-TITLE_FONT = Font(bold=True, size=13)
-GROUP_FONT = Font(bold=True, size=11, color='1F4E79')
+# 教学楼列：浅蓝底，作为分组标识
+BUILDING_FILL = PatternFill('solid', fgColor='D9E2F3')
+BUILDING_FONT = Font(bold=True, size=14, color='1F3864')
 
+# 标题
+TITLE_FONT = Font(bold=True, size=18, color='1F3864')
+SUBTITLE_FONT = Font(size=10, color='808080')
+
+# 行配色：完好的教室淡绿，有损坏的正常白底（让问题行更显眼）
+OK_FILL = PatternFill('solid', fgColor='E2EFDA')
+BAD_FILL = PatternFill('solid', fgColor='FCE4E4')
+
+# 数字字体
+NUM_FONT = Font(size=12)
+BROKEN_FONT = Font(size=12, bold=True, color='C00000')
+OK_NUM_FONT = Font(size=12, bold=True, color='375623')
+
+MEDIUM = Side(style='medium', color='8EA9DB')
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-WRAP = Alignment(wrap_text=True, vertical='top')
-CENTER = Alignment(horizontal='center', vertical='center')
+
+CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
+LEFT_TOP = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+# 列宽（字符数）
+COLS = [
+    ('教学楼', 14),
+    ('教室', 12),
+    ('设备总数', 11),
+    ('正常', 9),
+    ('损坏', 9),
+    ('损坏原因', 52),
+]
+NCOL = len(COLS)
+LAST_COL = get_column_letter(NCOL)
 
 
 # ---------------- 数据整理 ----------------
@@ -66,8 +96,7 @@ def split_conclusion(text):
     结论是 AI 按固定格式生成的：
         原因：xxx
         处理：yyy
-    这里拆成两列，便于在 Excel 里分别查看和统计。
-    没有该格式时，整段作为原因返回。
+    导出时只取「原因」部分，因为领导关心的是"为什么坏"。
     """
     text = (text or '').strip()
     if not text:
@@ -76,7 +105,8 @@ def split_conclusion(text):
     reason = ''
     action = ''
 
-    m = re.search(r'原因[:：]\s*(.+?)(?=\n\s*处理[:：]|\Z)', text, re.DOTALL)
+    m = re.search(r'原因[:：]\s*(.+?)(?=\n\s*数量[:：]|\n\s*处理[:：]|\Z)',
+                  text, re.DOTALL)
     if m:
         reason = m.group(1).strip()
 
@@ -93,15 +123,148 @@ def split_conclusion(text):
     return reason, action
 
 
-def build_room_index():
+def _shorten_reason(reason, limit=18):
     """
-    教室台账索引
+    把 AI 的长句原因压缩成领导一眼能懂的短语
 
-    返回：
-      by_key    {(教学楼, 教室): 教室信息}
-      by_name   {教室: [教室信息, ...]}   用于教室号能对上、但记录缺教学楼时补全
-      rooms     全部教室列表（保持台账顺序）
+    AI 生成的原因往往是完整的排查叙述，例如：
+        「多台电脑按开机键无反应、指示灯不亮，排查电源线与插座后仍无效，
+          判断为机箱电源或供电线路故障」
+    放在汇总表里太长，也会把表格撑得很难看。
+
+    处理策略（按优先级）：
+      1. 优先取「判断为 / 是 / 属于」之后的核心结论 —— 那才是真正的故障
+      2. 否则取最后一个分句（中文里结论通常在后半句）
+      3. 再去掉修饰词，控制长度
     """
+    r = (reason or '').strip()
+    if not r:
+        return ''
+
+    # 去掉「原因：」前缀和句末标点
+    r = re.sub(r'^原因[:：]\s*', '', r)
+    r = re.sub(r'[。；;，,]+$', '', r)
+
+    # 括号内的补充说明对领导是噪音，去掉
+    r = re.sub(r'（[^）]*）', '', r)
+    r = re.sub(r'\([^)]*\)', '', r)
+
+    # 1) 取结论性短语：「判断为 xxx」「认定为 xxx」
+    #    注意：不能用单独的「是」——它会匹配到「本身故障」「仍是」这类词内部
+    m = re.search(r'(?:判断为|判断是|认定为|确认为|属于)\s*([^，,。；;]{2,20})', r)
+    if m:
+        core = m.group(1).strip()
+        if len(core) >= 2:
+            r = core
+    else:
+        # 2) 没有结论标记时，取第一个分句
+        #    中文故障描述的写法是「<部件>损坏/故障，<后果>」，
+        #    所以第一个分句才是故障本身，后面是影响
+        parts = [p.strip() for p in re.split(r'[，,]', r) if p.strip()]
+        if parts:
+            r = parts[0]
+
+    # 3) 修饰词精简：去掉冗长的前缀和无关主语
+    r = re.sub(r'^(多台|该|这台|这台电脑|该电脑|电脑的?|机箱的?|教室的?)', '', r)
+
+    # 去掉「导致…」「使得…」开头的后果描述（这些不是原因本身）
+    r = re.sub(r'^(导致|使得|造成|引起)', '', r)
+
+    r = r.strip()
+    if len(r) > limit:
+        r = r[:limit] + '…'
+    return r
+
+
+def build_rows():
+    """
+    组装导出的每一行数据
+
+    返回：[(教学楼, 教室, 总数, 正常数, 损坏数, 原因列表), ...]
+
+    规则：
+      1. 以教室台账为准，每间教室一行
+      2. 损坏 = 未报修 + 待自修 + 已报修（按数量累加）
+      3. 已解决算正常
+      4. 台账里没有、但故障记录里出现过的教室，也列出（标为未登记）
+      5. 教室号对不上任何台账的记录，归入「未登记教室」分组，不丢数据
+    """
+    _, _, rooms = build_room_index()
+
+    # 按 (教学楼, 教室) 汇总故障记录
+    stats = defaultdict(lambda: {'broken': 0, 'causes': Counter()})
+
+    for rec in repair_log.load_records():
+        building = _clean(rec.get('教学楼'))
+        room = _clean(rec.get('教室'))
+        status = _clean(rec.get('状态')) or repair_log.STATUS_PENDING
+        if not room or room == '未填写':
+            continue
+
+        # 已解决 → 算正常，不计入损坏
+        if status == repair_log.STATUS_RESOLVED:
+            continue
+
+        qty = repair_log.get_quantity(rec)
+        reason, _ = split_conclusion(rec.get('诊断结论'))
+        key = (building, room)
+
+        stats[key]['broken'] += qty
+        if reason:
+            stats[key]['causes'][_shorten_reason(reason)] += qty
+
+    # 教室台账索引
+    ledger = {(r['building'], r['name']): r for r in rooms}
+
+    # 组装行：先排台账里的教室（按教学楼 → 教室），再补记录里多出来的
+    rows = []
+    used = set()
+
+    for r in rooms:
+        key = (r['building'], r['name'])
+        used.add(key)
+        total = r.get('total', 0)
+        st = stats.get(key, {'broken': 0, 'causes': Counter()})
+        broken = st['broken']
+        rows.append({
+            'building': r['building'],
+            'room': r['name'],
+            'total': total,
+            'healthy': max(total - broken, 0),
+            'broken': broken,
+            'causes': st['causes'],
+            'in_ledger': True,
+        })
+
+    # 记录里有、台账没有的教室
+    for key in sorted(stats):
+        if key in used:
+            continue
+        building, room = key
+        if not building:
+            building = '未标注教学楼'
+        st = stats[key]
+        rows.append({
+            'building': building,
+            'room': room,
+            'total': 0,        # 台账未登记总数，未知
+            'healthy': 0,
+            'broken': st['broken'],
+            'causes': st['causes'],
+            'in_ledger': False,
+        })
+
+    # 按教学楼、教室排序（教学楼保持台账出现顺序更自然）
+    order = {}
+    for i, r in enumerate(rooms):
+        order.setdefault(r['building'], i)
+
+    rows.sort(key=lambda x: (order.get(x['building'], 999), x['building'], x['room']))
+    return rows
+
+
+def build_room_index():
+    """教室台账索引（复用 classroom 的拍平结构）"""
     by_key = {}
     by_name = defaultdict(list)
     rooms = []
@@ -114,447 +277,189 @@ def build_room_index():
     return by_key, by_name, rooms
 
 
-def normalize_records():
+def format_causes(causes):
     """
-    读取报修记录，并补全「教学楼」
+    把原因计数格式化成单元格内容
 
-    补全规则：若记录的教学楼为空，但教室号能在台账里唯一匹配到，
-    则自动补上所在教学楼 —— 这样导出的表格才能按楼栋正确分组。
+    多个原因各占一行，带台数：
+        电源损坏 ×3
+        网线松动 ×1
     """
-    by_key, by_name, _ = build_room_index()
-    out = []
+    if not causes:
+        return '—'
 
-    for r in repair_log.load_records():
-        building = _clean(r.get('教学楼'))
-        room = _clean(r.get('教室'))
-        status = _clean(r.get('状态')) or repair_log.STATUS_PENDING
-        time = _clean(r.get('时间'))
-        symptom = _clean(r.get('故障现象'))
-        note = _clean(r.get('备注'))
-        reason, action = split_conclusion(r.get('诊断结论'))
+    items = causes.most_common()
+    lines = []
+    for reason, n in items[:6]:      # 最多列 6 条，避免单元格过高
+        lines.append(f'{reason} ×{n}')
+    if len(items) > 6:
+        lines.append(f'…另有 {len(items) - 6} 类原因')
 
-        # 尝试补全教学楼
-        matched = None
-        if building and (building, room) in by_key:
-            matched = by_key[(building, room)]
-        elif room in by_name and len(by_name[room]) == 1:
-            matched = by_name[room][0]
-            if not building:
-                building = matched['building']
-
-        out.append({
-            'id': _clean(r.get('记录编号')),
-            'time': time,
-            'building': building or '未标注教学楼',
-            'room': room or '未填写',
-            'symptom': symptom,
-            'reason': reason,
-            'action': action,
-            'status': status,
-            'note': note,
-            'quantity': repair_log.get_quantity(r),
-            'in_ledger': matched is not None,
-            'matched': matched,
-        })
-
-    return out
+    return '\n'.join(lines)
 
 
-def group_by_room(records):
-    """按 (教学楼, 教室) 归组"""
-    groups = defaultdict(list)
-    for r in records:
-        groups[(r['building'], r['room'])].append(r)
-    return groups
+# ---------------- 生成工作簿 ----------------
 
+def build_workbook():
+    """生成只含一张汇总表的 Excel"""
+    rows = build_rows()
 
-def room_history(records):
-    """
-    统计每间教室的历史故障
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '教室设备现状'
 
-    返回：{(教学楼, 教室): {...}}
-      total           故障记录条数
-      total_machines  涉及设备台数（按数量累加）
-      pending / self_fix / reported / resolved  各状态的台数
-      unresolved      未解决台数（未报修 + 待自修 + 已报修）
-      causes          原因计数（按条数）
-      all_ids / unresolved_ids
-    """
-    info = {}
+    # 列宽
+    for i, (_, width) in enumerate(COLS, 1):
+        ws.column_dimensions[get_column_letter(i)].width = width
 
-    for r in records:
-        key = (r['building'], r['room'])
-        d = info.setdefault(key, {
-            'total': 0,
-            'total_machines': 0,
-            'pending': 0,
-            'self_fix': 0,
-            'reported': 0,
-            'resolved': 0,
-            'unresolved': 0,
-            'causes': Counter(),
-            'unresolved_ids': [],
-            'all_ids': [],
-        })
+    # ---- 标题行 ----
+    ws.merge_cells(f'A1:{LAST_COL}1')
+    t = ws['A1']
+    t.value = '机房设备运行现状'
+    t.font = TITLE_FONT
+    t.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 32
 
-        qty = r.get('quantity', 1)
+    # ---- 副标题（生成时间）----
+    ws.merge_cells(f'A2:{LAST_COL}2')
+    s = ws['A2']
+    s.value = f'统计时间：{datetime.now().strftime("%Y-%m-%d %H:%M")}'
+    s.font = SUBTITLE_FONT
+    s.alignment = Alignment(horizontal='right', vertical='center')
+    ws.row_dimensions[2].height = 18
 
-        d['total'] += 1
-        d['total_machines'] += qty
-        d['all_ids'].append(r['id'])
-
-        if r['status'] == repair_log.STATUS_PENDING:
-            d['pending'] += qty
-        elif r['status'] == repair_log.STATUS_SELF_FIX:
-            d['self_fix'] += qty
-        elif r['status'] == repair_log.STATUS_REPORTED:
-            d['reported'] += qty
-        elif r['status'] == repair_log.STATUS_RESOLVED:
-            d['resolved'] += qty
-
-        if r['status'] != repair_log.STATUS_RESOLVED:
-            d['unresolved'] += qty
-            d['unresolved_ids'].append(r['id'])
-
-        if r['reason']:
-            d['causes'][r['reason'][:40]] += 1
-
-    return info
-
-
-# ---------------- 排序 ----------------
-
-# 状态排序优先级：越需要处理越靠前
-STATUS_ORDER = {
-    repair_log.STATUS_PENDING: 0,
-    repair_log.STATUS_SELF_FIX: 1,
-    repair_log.STATUS_REPORTED: 2,
-    repair_log.STATUS_RESOLVED: 3,
-}
-
-
-def sort_key(r):
-    """排序：状态 → 教学楼 → 教室 → 时间"""
-    return (
-        STATUS_ORDER.get(r['status'], 9),
-        r['building'],
-        r['room'],
-        r['time'],
-    )
-
-
-# ---------------- 工作表写入 ----------------
-
-def _write_header(ws, headers, widths=None):
-    ws.append(headers)
-    for i, _ in enumerate(headers, 1):
-        c = ws.cell(row=ws.max_row, column=i)
+    # ---- 表头 ----
+    HEADER_ROW = 3
+    for i, (name, _) in enumerate(COLS, 1):
+        c = ws.cell(row=HEADER_ROW, column=i, value=name)
         c.fill = HEADER_FILL
         c.font = HEADER_FONT
         c.alignment = CENTER
-        c.border = BORDER
-    if widths:
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = 'A2'
+        c.border = Border(left=THIN, right=THIN, top=MEDIUM, bottom=MEDIUM)
+    ws.row_dimensions[HEADER_ROW].height = 26
+
+    # ---- 数据行 ----
+    start = HEADER_ROW + 1
+    r = start
+
+    for row in rows:
+        ws.cell(row=r, column=1, value=row['building'])
+        ws.cell(row=r, column=2, value=row['room'])
+
+        # 台账未登记总数的教室，用「—」而不是 0，避免误读成"一台都没有"
+        total_cell = ws.cell(row=r, column=3,
+                             value=row['total'] if row['total'] else '—')
+        healthy_cell = ws.cell(row=r, column=4,
+                               value=row['healthy'] if row['total'] else '—')
+        broken_cell = ws.cell(row=r, column=5, value=row['broken'])
+        cause_cell = ws.cell(row=r, column=6, value=format_causes(row['causes']))
+
+        # 数字列居中
+        for col in (3, 4, 5):
+            ws.cell(row=r, column=col).alignment = CENTER
+            ws.cell(row=r, column=col).border = BORDER
+            ws.cell(row=r, column=col).font = NUM_FONT
+
+        # 正常数用绿色、损坏数用红色加粗
+        healthy_cell.font = OK_NUM_FONT
+        if row['broken']:
+            broken_cell.font = BROKEN_FONT
+
+        # 原因列左对齐、自动换行
+        cause_cell.alignment = LEFT_TOP
+        cause_cell.border = BORDER
+        cause_cell.font = Font(size=11)
+
+        # 底色：完好的教室淡绿，有损坏的淡红（一眼扫出问题）
+        fill = BAD_FILL if row['broken'] else OK_FILL
+        for col in range(1, NCOL + 1):
+            ws.cell(row=r, column=col).fill = fill
+            if col != 6:
+                ws.cell(row=r, column=col).border = BORDER
+
+        # 行高：原因行数多时自动增高
+        n_lines = max(len(str(cause_cell.value or '').split('\n')), 1)
+        ws.row_dimensions[r].height = max(22, 17 * n_lines + 6)
+
+        r += 1
+
+    end = r - 1
+
+    # ---- 合并「教学楼」列 ----
+    # 同一教学楼的连续行合并成一格，视觉上形成分组，也避免重复文字
+    merge_buildings(ws, start, end)
+
+    # ---- 合计行 ----
+    if end >= start:
+        total_all = sum(x['total'] for x in rows)
+        healthy_all = sum(x['healthy'] for x in rows)
+        broken_all = sum(x['broken'] for x in rows)
+
+        ws.cell(row=r, column=1, value='合计')
+        ws.cell(row=r, column=2, value=f'{len(rows)} 间')
+        ws.cell(row=r, column=3, value=total_all)
+        ws.cell(row=r, column=4, value=healthy_all)
+        ws.cell(row=r, column=5, value=broken_all)
+        ws.cell(row=r, column=6,
+                value=f'正常率 {healthy_all / total_all * 100:.1f}%'
+                      if total_all else '—')
+
+        for col in range(1, NCOL + 1):
+            c = ws.cell(row=r, column=col)
+            c.font = Font(bold=True, size=12)
+            c.alignment = CENTER
+            c.fill = BUILDING_FILL
+            c.border = Border(left=THIN, right=THIN, top=MEDIUM, bottom=MEDIUM)
+        ws.cell(row=r, column=6).alignment = LEFT_TOP
+        ws.row_dimensions[r].height = 24
+
+    # 冻结表头，滚动时始终看得到列名
+    ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
+
+    # 打印设置：横向、一页宽，方便直接打印或转 PDF 给领导
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = f'{HEADER_ROW}:{HEADER_ROW}'
+
+    return wb
 
 
-def sheet_overview(wb, records):
-    """Sheet 1：故障总表（按状态 → 教学楼 → 教室 排序）"""
-    ws = wb.create_sheet('故障总表')
-    widths = [10, 14, 12, 10, 8, 18, 30, 40, 40, 18]
-    _write_header(
-        ws,
-        ['状态', '教学楼', '教室', '记录编号', '数量', '损坏时间',
-         '故障现象', '故障原因', '处理结论', '备注'],
-        widths,
-    )
-
-    ordered = sorted(records, key=sort_key)
-    current_status = None
-
-    for r in ordered:
-        # 状态变化时插入分组标题，便于快速定位
-        if r['status'] != current_status:
-            current_status = r['status']
-            group = [x for x in ordered if x['status'] == current_status]
-            count = len(group)
-            machines = sum(x.get('quantity', 1) for x in group)
-            ws.append([f'▼ {current_status}（{count} 条，共 {machines} 台）'])
-            ws.merge_cells(
-                start_row=ws.max_row, start_column=1,
-                end_row=ws.max_row, end_column=len(widths),
-            )
-            c = ws.cell(row=ws.max_row, column=1)
-            c.font = GROUP_FONT
-            c.fill = PatternFill('solid', fgColor='D9E2F3')
-
-        ws.append([
-            r['status'], r['building'], r['room'], r['id'],
-            r.get('quantity', 1), r['time'],
-            r['symptom'], r['reason'], r['action'], r['note'],
-        ])
-
-        row = ws.max_row
-        for i in range(1, len(widths) + 1):
-            cell = ws.cell(row=row, column=i)
-            cell.border = BORDER
-            cell.alignment = WRAP
-        ws.cell(row=row, column=1).fill = STATUS_FILL.get(r['status'], PatternFill())
-        ws.cell(row=row, column=1).alignment = CENTER
-        ws.cell(row=row, column=5).alignment = CENTER
-
-    return ws
-
-
-def sheet_current_status(wb, records):
+def merge_buildings(ws, start, end):
     """
-    Sheet 2：教室现状
+    按教学楼合并第一列
 
-    设备分三种状态：
-      正常     —— 可用
-      待自修   —— 非硬件问题，可自行修复（黄色）
-      需报修   —— 硬件故障 / 等待维修
-
-    「不能用台数」= 待自修 + 需报修，按数量字段累加，
-    与报修台账的口径一致。
+    同一教学楼的连续行合并成一格，文字竖排居中、字号加大，
+    视觉上形成清晰的分组。
     """
-    ws = wb.create_sheet('教室现状')
-    widths = [14, 12, 10, 10, 10, 10, 10, 46]
-    _write_header(
-        ws,
-        ['教学楼', '教室', '电脑总数', '可用台数', '待自修', '需报修',
-         '损坏率', '备注'],
-        widths,
-    )
+    if end < start:
+        return
 
-    _, _, rooms = build_room_index()
-    hist = room_history(records)
+    group_start = start
+    current = ws.cell(row=start, column=1).value
 
-    # 台账里的教室 + 记录里出现过的教室，合并展示
-    seen = set()
-    rows = []
+    for r in range(start + 1, end + 2):
+        val = ws.cell(row=r, column=1).value if r <= end else None
 
-    for room in rooms:
-        key = (room['building'], room['name'])
-        seen.add(key)
-        rows.append((room['building'], room['name'], room.get('total', 0), key))
+        if val != current:
+            # [group_start, r-1] 是同一个教学楼
+            if r - 1 > group_start:
+                ws.merge_cells(start_row=group_start, start_column=1,
+                               end_row=r - 1, end_column=1)
 
-    for key in hist:
-        # 「未填写」不是真实教室，不应出现在教室现状里
-        # （它会在「未录入台账的故障」页单独说明）
-        if key[1] == '未填写':
-            continue
-        if key not in seen:
-            rows.append((key[0], key[1], 0, key))
+            cell = ws.cell(row=group_start, column=1)
+            cell.value = current
+            cell.font = BUILDING_FONT
+            cell.fill = BUILDING_FILL
+            # 竖排居中：楼层名竖着写，窄列也能放得下，且视觉更整齐
+            cell.alignment = Alignment(horizontal='center', vertical='center',
+                                       text_rotation=0, wrap_text=True)
+            cell.border = Border(left=MEDIUM, right=MEDIUM,
+                                 top=THIN, bottom=THIN)
 
-    rows.sort(key=lambda x: (x[0], x[1]))
-
-    totals = {'total': 0, 'free': 0, 'self_fix': 0, 'hard': 0}
-
-    for building, name, total, key in rows:
-        h = hist.get(key, {})
-        self_fix = h.get('self_fix', 0)
-        hard = h.get('pending', 0) + h.get('reported', 0)
-        broken = self_fix + hard
-        solved = h.get('resolved', 0)
-        total_faults = h.get('total', 0)
-
-        free = max(total - broken, 0) if total else 0
-        rate = f'{broken / total * 100:.1f}%' if total else '—'
-
-        notes = []
-        if total == 0:
-            notes.append('台账未登记电脑总数')
-        if total_faults:
-            parts = []
-            if h.get('unresolved'):
-                parts.append(f'未解决 {h["unresolved"]} 台')
-            if solved:
-                parts.append(f'已解决 {solved} 台')
-            notes.append(f'历史故障 {total_faults} 次（{"，".join(parts)}）')
-        if h.get('causes'):
-            top = h['causes'].most_common(1)[0][0]
-            notes.append(f'主要故障：{top}')
-        if total and broken > total:
-            notes.append('⚠ 损坏数超过总数，请核对台账')
-
-        ws.append([
-            building, name,
-            total if total else '—',
-            free if total else '—',
-            self_fix,
-            hard,
-            rate,
-            '；'.join(notes),
-        ])
-
-        row = ws.max_row
-        for i in range(1, len(widths) + 1):
-            cell = ws.cell(row=row, column=i)
-            cell.border = BORDER
-            cell.alignment = WRAP if i == 8 else CENTER
-        if self_fix:
-            ws.cell(row=row, column=5).fill = STATUS_FILL[repair_log.STATUS_SELF_FIX]
-        if hard:
-            ws.cell(row=row, column=6).fill = STATUS_FILL[repair_log.STATUS_PENDING]
-
-        totals['total'] += total
-        totals['free'] += free if total else 0
-        totals['self_fix'] += self_fix
-        totals['hard'] += hard
-
-    # 合计行
-    ws.append([])
-    ws.append(['合计', f'{len(rows)} 间', totals['total'], totals['free'],
-               totals['self_fix'], totals['hard'], '', ''])
-    for i in range(1, 9):
-        c = ws.cell(row=ws.max_row, column=i)
-        c.font = Font(bold=True)
-        c.border = BORDER
-        c.alignment = CENTER
-
-    return ws
-
-
-def sheet_damage_detail(wb, records):
-    """
-    Sheet 3：损坏明细
-
-    只列「未解决」的记录 —— 也就是当前不能用的机器，
-    每条对应损坏时间与原因，并标明数量与处理方式。
-    """
-    ws = wb.create_sheet('损坏明细')
-    widths = [14, 12, 10, 8, 18, 46, 12, 22]
-    _write_header(
-        ws,
-        ['教学楼', '教室', '记录编号', '数量', '损坏时间', '故障原因',
-         '状态', '备注'],
-        widths,
-    )
-
-    broken = [r for r in records if r['status'] != repair_log.STATUS_RESOLVED]
-
-    if not broken:
-        ws.append(['（当前没有未解决的故障）'])
-        return ws
-
-    # 按教室归组，同教室的机器排在一起
-    groups = group_by_room(broken)
-    for key in sorted(groups):
-        items = sorted(groups[key], key=lambda r: r['time'])
-        for r in items:
-            ws.append([
-                r['building'], r['room'], r['id'], r.get('quantity', 1),
-                r['time'], r['reason'] or r['symptom'], r['status'], r['note'],
-            ])
-            row = ws.max_row
-            for i in range(1, len(widths) + 1):
-                cell = ws.cell(row=row, column=i)
-                cell.border = BORDER
-                cell.alignment = WRAP
-            ws.cell(row=row, column=4).alignment = CENTER
-            ws.cell(row=row, column=7).fill = STATUS_FILL.get(
-                r['status'], PatternFill())
-            ws.cell(row=row, column=7).alignment = CENTER
-
-    # 合计
-    total_machines = sum(r.get('quantity', 1) for r in broken)
-    ws.append([])
-    ws.append([f'合计 {len(broken)} 条记录，共 {total_machines} 台设备不能正常使用'])
-    ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
-
-    return ws
-
-
-def sheet_statistics(wb, records):
-    """Sheet 4：故障统计（每间教室的历史故障原因与次数）"""
-    ws = wb.create_sheet('故障统计')
-    widths = [14, 12, 12, 12, 10, 10, 10, 50, 40]
-    _write_header(
-        ws,
-        ['教学楼', '教室', '故障次数', '涉及台数', '未报修', '待自修',
-         '已解决', '主要原因分布', '备注'],
-        widths,
-    )
-
-    hist = room_history(records)
-    if not hist:
-        ws.append(['（暂无故障记录）'])
-        return ws
-
-    rows = sorted(hist.items(), key=lambda kv: (-kv[1]['total'], kv[0]))
-
-    for (building, room), h in rows:
-        causes = '；'.join(
-            f'{c}×{n}' for c, n in h['causes'].most_common(5)
-        ) or '—'
-
-        note_parts = []
-        if h['resolved']:
-            note_parts.append(f'已修复 {h["resolved"]} 台')
-        if h['unresolved']:
-            note_parts.append(f'待处理 {h["unresolved"]} 台')
-        if h['self_fix']:
-            note_parts.append('含可自修项，可先行处理')
-        if h['total'] > 1:
-            note_parts.append('该教室多次出现故障，建议排查根源')
-
-        ws.append([
-            building, room, h['total'], h['total_machines'],
-            h['pending'], h['self_fix'], h['resolved'],
-            causes, '；'.join(note_parts),
-        ])
-        row = ws.max_row
-        for i in range(1, len(widths) + 1):
-            cell = ws.cell(row=row, column=i)
-            cell.border = BORDER
-            cell.alignment = WRAP if i in (8, 9) else CENTER
-
-    return ws
-
-
-def sheet_unlinked(wb, records):
-    """
-    Sheet 5：未录入台账的故障
-
-    教室号对不上教室台账的记录单独列出。
-    这些数据不能丢 —— 它们是真实发生过的故障，
-    只是还没在「教室管理」里登记对应教室。
-    """
-    ws = wb.create_sheet('未录入台账的故障')
-    widths = [14, 16, 10, 8, 18, 30, 40, 12]
-    _write_header(
-        ws,
-        ['教学楼', '教室', '记录编号', '数量', '损坏时间', '故障现象',
-         '故障原因', '状态'],
-        widths,
-    )
-
-    orphans = [r for r in records if not r['in_ledger']]
-
-    if not orphans:
-        ws.append(['（所有故障记录都已对应到教室台账）'])
-        return ws
-
-    for r in sorted(orphans, key=sort_key):
-        ws.append([
-            r['building'], r['room'], r['id'], r.get('quantity', 1),
-            r['time'], r['symptom'], r['reason'] or r['symptom'], r['status'],
-        ])
-        row = ws.max_row
-        for i in range(1, len(widths) + 1):
-            cell = ws.cell(row=row, column=i)
-            cell.border = BORDER
-            cell.alignment = WRAP
-        ws.cell(row=row, column=4).alignment = CENTER
-        ws.cell(row=row, column=8).fill = STATUS_FILL.get(r['status'], PatternFill())
-        ws.cell(row=row, column=8).alignment = CENTER
-
-    ws.append([])
-    ws.append([f'以上 {len(orphans)} 条记录的教室未在「教室管理」中登记，'
-               f'建议补录后再导出，以便纳入教室维度的统计。'])
-    return ws
+            group_start = r
+            current = val
 
 
 # ---------------- 对外接口 ----------------
@@ -565,95 +470,14 @@ def export_to_bytes():
 
     返回：(文件名, bytes)
     """
-    records = normalize_records()
-
-    wb = Workbook()
-    wb.remove(wb.active)      # 去掉默认空表
-
-    sheet_overview(wb, records)
-    sheet_current_status(wb, records)
-    sheet_damage_detail(wb, records)
-    sheet_statistics(wb, records)
-    sheet_unlinked(wb, records)
-
-    # 首页放一张"总览"作为第一个表
-    ws = wb.create_sheet('总览', 0)
-    _fill_summary(ws, records)
+    wb = build_workbook()
 
     buf = io.BytesIO()
     wb.save(buf)
 
     stamp = datetime.now().strftime('%Y-%m-%d_%H%M')
-    filename = f'机房故障报表_{stamp}.xlsx'
+    filename = f'机房设备运行现状_{stamp}.xlsx'
     return filename, buf.getvalue()
-
-
-def _fill_summary(ws, records):
-    """总览页：把关键数字放在最前面"""
-    ws.column_dimensions['A'].width = 22
-    ws.column_dimensions['B'].width = 18
-    ws.column_dimensions['C'].width = 46
-
-    ws.append(['机房故障报表'])
-    ws['A1'].font = Font(bold=True, size=16)
-    ws.append([f'生成时间：{datetime.now().strftime("%Y-%m-%d %H:%M")}'])
-    ws.append([])
-
-    total = len(records)
-    by_status = Counter(r['status'] for r in records)
-    unresolved = total - by_status.get(repair_log.STATUS_RESOLVED, 0)
-
-    _, _, rooms = build_room_index()
-    total_pcs = sum(r.get('total', 0) for r in rooms)
-    hist = room_history(records)
-
-    # 真实教室数（排除「未填写」这类占位值）
-    real_rooms = [k for k in hist if k[1] != '未填写']
-
-    ws.append(['项目', '数值', '说明'])
-    for i in range(1, 4):
-        c = ws.cell(row=ws.max_row, column=i)
-        c.fill = HEADER_FILL
-        c.font = HEADER_FONT
-        c.alignment = CENTER
-
-    rows = [
-        ('故障记录总数', total, '报修台账中的全部记录'),
-        ('涉及设备台数', sum(r.get('quantity', 1) for r in records),
-         '按每条记录的数量累加'),
-        ('未报修', by_status.get(repair_log.STATUS_PENDING, 0), '硬件故障，需要报修'),
-        ('待自修', by_status.get(repair_log.STATUS_SELF_FIX, 0), '非硬件问题，可自行修复'),
-        ('已报修', by_status.get(repair_log.STATUS_REPORTED, 0), '已联系维修，等待处理'),
-        ('已解决', by_status.get(repair_log.STATUS_RESOLVED, 0), '已完结'),
-        ('待处理合计', unresolved, '未报修 + 待自修 + 已报修'),
-        ('涉及教室数', len(real_rooms), '有故障记录的教室（不含"未填写"）'),
-        ('台账教室数', len(rooms), '已在「教室管理」登记的教室'),
-        ('台账电脑总数', total_pcs, '各教室登记的总台数之和'),
-    ]
-
-    for name, val, desc in rows:
-        ws.append([name, val, desc])
-        for i in range(1, 4):
-            ws.cell(row=ws.max_row, column=i).border = BORDER
-        ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
-
-    ws.append([])
-    ws.append(['工作表说明'])
-    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
-
-    sheets = [
-        ('故障总表', '按「未报修 → 待自修 → 已报修 → 已解决」排序，'
-                     '组内按教学楼、教室分组'),
-        ('教室现状', '每间教室有多少台能用、多少台待自修、多少台需报修'),
-        ('损坏明细', '当前不能用的设备，逐条对应损坏时间与原因'),
-        ('故障统计', '每间教室的历史故障原因与次数'),
-        ('未录入台账的故障', '教室号对不上台账的记录（不丢失）'),
-    ]
-    for name, desc in sheets:
-        ws.append([name, '', desc])
-        ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
-        for i in range(1, 4):
-            ws.cell(row=ws.max_row, column=i).border = BORDER
 
 
 def export_to_file(path=None):
@@ -690,9 +514,17 @@ if __name__ == '__main__':
 
     p = export_to_file()
     print(f'已导出：{p}')
+    print()
 
-    recs = normalize_records()
-    print(f'  记录 {len(recs)} 条')
-    for r in recs:
-        tag = '' if r['in_ledger'] else '  [未录入台账]'
-        print(f"    {r['status']:<4} {r['building']} / {r['room']:<14} {r['id']}{tag}")
+    rows = build_rows()
+    print(f'{"教学楼":<12}{"教室":<10}{"总数":>6}{"正常":>6}{"损坏":>6}  原因')
+    print('-' * 72)
+    for x in rows:
+        cause = format_causes(x['causes']).replace('\n', '；')
+        total = x['total'] if x['total'] else '—'
+        print(f"{x['building']:<12}{x['room']:<10}{str(total):>6}"
+              f"{str(x['healthy']) if x['total'] else '—':>6}{x['broken']:>6}  {cause}")
+    print('-' * 72)
+    print(f'合计 {len(rows)} 间｜总设备 {sum(x["total"] for x in rows)}'
+          f'｜正常 {sum(x["healthy"] for x in rows)}'
+          f'｜损坏 {sum(x["broken"] for x in rows)}')

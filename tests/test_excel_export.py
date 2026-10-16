@@ -1,17 +1,19 @@
 """
 Excel 导出功能测试
 
-重点验证：
-  1. 排序：未报修 → 已报修 → 已解决，组内按教学楼、教室
-  2. 「不能用台数」按机器去重，同一机位多次损坏只算一台
-  3. 损坏明细与教室现状的口径一致（不能用 = 未解决）
-  4. 对不上台账的记录不丢失，进入独立工作表
-  5. 结论能拆成「原因」和「处理」
+导出设计：**给领导看的一页纸**
+  只有一张表，一间教室一行，一眼看出每间教室的现状。
+
+  列：教学楼 | 教室 | 设备总数 | 正常 | 损坏 | 损坏原因
+
+关键约定：
+  · 未报修 / 待自修 / 已报修 → 损坏
+  · 已解决                   → 正常
+  这样「正常 + 损坏 = 设备总数」，领导能对上账。
 """
 
 import csv
 import io
-import os
 
 import pytest
 from openpyxl import load_workbook
@@ -46,377 +48,305 @@ def seed_rooms(rooms):
         classroom.add_room(b, n, total)
 
 
-def read_sheet(name, data=None, skip_header=True):
-    """把导出的 Excel 读成二维列表（默认跳过表头行）"""
+def read_rows(data=None, include_total=False):
+    """
+    读出导出的数据行（跳过标题、时间、表头）
+
+    参数：include_total - 是否包含最后的「合计」行
+    """
     if data is None:
         _, data = excel_export.export_to_bytes()
     wb = load_workbook(io.BytesIO(data))
-    ws = wb[name]
-    rows = [[c for c in row] for row in ws.iter_rows(values_only=True)]
-    return rows[1:] if skip_header else rows
+    ws = wb.active
+    out = []
+    for row in ws.iter_rows(min_row=4, values_only=True):
+        if row[0] is None and row[1] is None:
+            continue
+        if not include_total and row[0] == '合计':
+            continue
+        out.append(list(row))
+    return out
 
 
-# ---------------- 结论拆分 ----------------
+# ---------------- 工作簿结构 ----------------
 
-class TestSplitConclusion:
+class TestWorkbookStructure:
 
-    def test_standard_format(self):
-        reason, action = excel_export.split_conclusion(
-            '原因：电源线松动。\n处理：插紧即可。')
-        assert reason == '电源线松动。'
-        assert action == '插紧即可。'
+    def test_single_sheet_only(self, tmp_data, seeded_rooms):
+        """只保留一张表 —— 领导不需要多张明细"""
+        _, data = excel_export.export_to_bytes()
+        wb = load_workbook(io.BytesIO(data))
+        assert len(wb.sheetnames) == 1
 
-    def test_fullwidth_colon(self):
-        reason, action = excel_export.split_conclusion(
-            '原因：主板故障\n处理：联系维修')
-        assert reason == '主板故障'
-        assert action == '联系维修'
+    def test_headers(self, tmp_data, seeded_rooms):
+        _, data = excel_export.export_to_bytes()
+        wb = load_workbook(io.BytesIO(data))
+        ws = wb.active
+        headers = [ws.cell(row=3, column=i).value for i in range(1, 7)]
+        assert headers == ['教学楼', '教室', '设备总数', '正常', '损坏', '损坏原因']
 
-    def test_multiline_merged(self):
-        """原因里的换行应被压成一行，避免撑坏单元格"""
-        reason, _ = excel_export.split_conclusion(
-            '原因：第一行\n第二行\n处理：xxx')
-        assert '\n' not in reason
-        assert '第一行' in reason and '第二行' in reason
+    def test_no_removed_sheets(self, tmp_data, seeded_rooms):
+        """旧的多表设计已删除"""
+        _, data = excel_export.export_to_bytes()
+        wb = load_workbook(io.BytesIO(data))
+        for old in ['总览', '故障总表', '损坏明细', '故障统计', '未录入台账的故障']:
+            assert old not in wb.sheetnames
 
-    def test_nonstandard_falls_back(self):
-        """不符合格式的结论，整段作为原因，不应丢内容"""
-        reason, action = excel_export.split_conclusion('就是电源坏了')
-        assert reason == '就是电源坏了'
-        assert action == ''
+    def test_title_and_time_present(self, tmp_data, seeded_rooms):
+        _, data = excel_export.export_to_bytes()
+        ws = load_workbook(io.BytesIO(data)).active
+        assert '机房设备运行现状' in str(ws['A1'].value)
+        assert '统计时间' in str(ws['A2'].value)
 
-    def test_empty(self):
-        assert excel_export.split_conclusion('') == ('', '')
-        assert excel_export.split_conclusion(None) == ('', '')
+    def test_filename(self, tmp_data, seeded_rooms):
+        fn, _ = excel_export.export_to_bytes()
+        assert fn.startswith('机房设备运行现状_')
+        assert fn.endswith('.xlsx')
 
 
-# ---------------- 排序 ----------------
+# ---------------- 一行一间教室 ----------------
 
-class TestOrdering:
+class TestOneRowPerRoom:
 
-    def test_status_order_pending_selffix_reported_resolved(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'room': 'A101', 'building': '教学楼A',
-             'status': repair_log.STATUS_RESOLVED},
-            {'id': 'R002', 'room': 'A101', 'building': '教学楼A',
-             'status': repair_log.STATUS_PENDING},
-            {'id': 'R003', 'room': 'A101', 'building': '教学楼A',
-             'status': repair_log.STATUS_SELF_FIX},
-            {'id': 'R004', 'room': 'A101', 'building': '教学楼A',
-             'status': repair_log.STATUS_REPORTED},
+    def test_each_room_gets_a_row(self, tmp_data, seeded_rooms):
+        seed_rooms([
+            ('教学楼A', 'A101', 80),
+            ('教学楼A', 'A102', 80),
+            ('实验楼B', '201', 40),
         ])
+        rows = read_rows()
+        rooms = [r[1] for r in rows]
+        assert rooms == ['A101', 'A102', '201']
 
-        rows = read_sheet('故障总表')
-        ids = [r[3] for r in rows if r and r[3] and str(r[3]).startswith('R')]
-        # 未报修 → 待自修 → 已报修 → 已解决
-        assert ids == ['R002', 'R003', 'R004', 'R001'], ids
-
-    def test_grouped_by_building_then_room(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'building': '教学楼B', 'room': 'B201',
-             'status': repair_log.STATUS_PENDING},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A201',
-             'status': repair_log.STATUS_PENDING},
-            {'id': 'R003', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING},
+    def test_grouped_by_building(self, tmp_data, seeded_rooms):
+        """同一教学楼的教室连续排列"""
+        seed_rooms([
+            ('教学楼A', 'A101', 80),
+            ('教学楼B', 'B101', 80),
+            ('教学楼A', 'A102', 80),
         ])
+        rows = read_rows()
+        # 教学楼A 的两间应排在一起
+        buildings = [r[0] or '' for r in rows]
+        non_empty = [b for b in buildings if b]
+        assert non_empty == ['教学楼A', '教学楼B']
 
-        rows = read_sheet('故障总表')
-        ids = [r[3] for r in rows if r and r[3] and str(r[3]).startswith('R')]
-        # 教学楼A 在前，其内 A101 先于 A201
-        assert ids == ['R003', 'R002', 'R001'], ids
-
-    def test_status_section_headers_present(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'room': 'A101', 'building': '教学楼A',
-             'status': repair_log.STATUS_PENDING},
+    def test_building_merged_vertically(self, tmp_data, seeded_rooms):
+        """同一教学楼合并成一格，只显示一次"""
+        seed_rooms([
+            ('教学楼A', 'A101', 80),
+            ('教学楼A', 'A102', 80),
+            ('教学楼A', 'A103', 80),
         ])
-        rows = read_sheet('故障总表')
-        text = ' '.join(str(c) for r in rows for c in r if c)
-        assert '未报修' in text
+        _, data = excel_export.export_to_bytes()
+        ws = load_workbook(io.BytesIO(data)).active
+
+        merges = [str(m) for m in ws.merged_cells.ranges]
+        assert any(m.startswith('A4:A') for m in merges), merges
+
+        # 合并后只有第一行有值
+        assert ws.cell(row=4, column=1).value == '教学楼A'
+        assert ws.cell(row=5, column=1).value is None
 
 
-# ---------------- 教室现状 ----------------
+# ---------------- 状态归类 ----------------
 
-class TestCurrentStatus:
-    """
-    教室现状列序：
-      0 教学楼 1 教室 2 电脑总数 3 可用台数 4 待自修 5 需报修 6 损坏率 7 备注
-    """
+class TestStatusMapping:
+    """未报修 / 待自修 / 已报修 都算损坏；已解决 算正常"""
 
-    def test_usable_and_broken_counts(self, tmp_data, seeded_rooms):
-        seed_rooms([('教学楼A', 'A101', 60)])
+    @pytest.mark.parametrize('status', [
+        repair_log.STATUS_PENDING,
+        repair_log.STATUS_SELF_FIX,
+        repair_log.STATUS_REPORTED,
+    ])
+    def test_unresolved_counts_as_broken(self, tmp_data, seeded_rooms, status):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'status': status, 'quantity': 5}])
+
+        row = read_rows()[0]
+        assert row[4] == 5            # 损坏
+        assert row[3] == 75           # 正常 = 80 - 5
+
+    def test_resolved_counts_as_healthy(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
         seed([
             {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-        ])
-
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[2] == 60      # 总数
-        assert row[3] == 59      # 可用
-        assert row[5] == 1       # 需报修
-
-    def test_quantity_accumulates(self, tmp_data, seeded_rooms):
-        """一条记录代表多台时，台数要按数量累加"""
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING, 'quantity': 5},
-        ])
-
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[5] == 5       # 需报修 5 台
-        assert row[3] == 55      # 可用 55
-
-    def test_self_fix_counted_separately(self, tmp_data, seeded_rooms):
-        """待自修单列，同时计入"不能用" """
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_SELF_FIX, 'quantity': 3},
-        ])
-
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[4] == 3       # 待自修
-        assert row[5] == 0       # 需报修
-        assert row[3] == 57      # 可用 = 60 - 3
-
-    def test_resolved_does_not_count_as_broken(self, tmp_data, seeded_rooms):
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-        ])
-
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[4] == 0 and row[5] == 0
-        assert row[3] == 60
-
-    def test_history_note_mentions_repeats(self, tmp_data, seeded_rooms):
-        """同一教室多次损坏，备注要说明历史次数"""
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING},
-        ])
-
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        note = str(row[7])
-        assert '历史故障 2 次' in note
-        assert '未解决 1' in note and '已解决 1' in note
-
-    def test_placeholder_room_excluded(self, tmp_data, seeded_rooms):
-        """「未填写」不是真实教室，不应出现在教室现状"""
-        seed([
-            {'id': 'R001', 'room': '未填写', 'status': repair_log.STATUS_PENDING},
-        ])
-        rows = read_sheet('教室现状')
-        names = [r[1] for r in rows if r and r[1]]
-        assert '未填写' not in names
-
-    def test_no_negative_usable(self, tmp_data, seeded_rooms):
-        """损坏数超过总数时，可用台数不应变成负数"""
-        seed_rooms([('教学楼A', 'A101', 2)])
-        seed([
-            {'id': f'R00{i}', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING}
-            for i in range(1, 6)
-        ])
-        rows = read_sheet('教室现状')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[3] >= 0
-
-
-# ---------------- 损坏明细 ----------------
-
-class TestDamageDetail:
-    """
-    损坏明细列序：
-      0 教学楼 1 教室 2 记录编号 3 数量 4 损坏时间 5 故障原因 6 状态 7 备注
-    """
-
-    def test_only_unresolved(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-        ])
-        rows = read_sheet('损坏明细')
-        ids = [r[2] for r in rows if r and r[2] and str(r[2]).startswith('R')]
-        assert 'R001' in ids
-        assert 'R002' not in ids, '已解决的机器不该出现在损坏明细'
-
-    def test_self_fix_included(self, tmp_data, seeded_rooms):
-        """待自修的设备当前也不能用，应出现在损坏明细里"""
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_SELF_FIX},
-        ])
-        rows = read_sheet('损坏明细')
-        ids = [r[2] for r in rows if r and r[2]]
-        assert 'R001' in ids
-
-    def test_has_time_and_reason(self, tmp_data, seeded_rooms):
-        """每台不能用的机器都要有损坏时间和原因"""
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'time': '2026-10-15 09:30',
-             'conclusion': '原因：电源损坏。\n处理：更换。',
-             'status': repair_log.STATUS_PENDING},
-        ])
-        rows = read_sheet('损坏明细')
-        row = [r for r in rows if r and r[2] == 'R001'][0]
-        assert row[4] == '2026-10-15 09:30'
-        assert '电源损坏' in str(row[5])
-
-    def test_count_matches_status_sheet(self, tmp_data, seeded_rooms):
-        """损坏明细的台数合计应与教室现状的（待自修 + 需报修）一致"""
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING, 'quantity': 2},
-            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_SELF_FIX, 'quantity': 1},
-            {'id': 'R003', 'building': '教学楼A', 'room': 'A101',
              'status': repair_log.STATUS_RESOLVED, 'quantity': 5},
-        ])
-
-        detail = read_sheet('损坏明细')
-        n_detail = sum(int(r[3] or 1) for r in detail
-                       if r and r[2] and str(r[2]).startswith('R'))
-
-        status = read_sheet('教室现状')
-        row = [r for r in status if r and r[1] == 'A101'][0]
-        assert n_detail == (row[4] + row[5]) == 3
-
-    def test_empty_when_all_resolved(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-        ])
-        rows = read_sheet('损坏明细')
-        text = ' '.join(str(c) for r in rows for c in r if c)
-        assert '没有未解决' in text
-
-
-# ---------------- 故障统计 ----------------
-
-class TestStatistics:
-    """
-    故障统计列序：
-      0 教学楼 1 教室 2 故障次数 3 涉及台数 4 未报修 5 待自修 6 已解决
-      7 主要原因分布 8 备注
-    """
-
-    def test_counts_by_room(self, tmp_data, seeded_rooms):
-        seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING},
             {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_RESOLVED},
-            {'id': 'R003', 'building': '教学楼A', 'room': 'A102',
-             'status': repair_log.STATUS_RESOLVED},
+             'status': repair_log.STATUS_RESOLVED, 'quantity': 3},
         ])
-        rows = read_sheet('故障统计')
-        a101 = [r for r in rows if r and r[1] == 'A101'][0]
-        assert a101[2] == 2      # 故障次数
-        assert a101[4] == 1      # 未报修
-        assert a101[6] == 1      # 已解决
 
-    def test_machine_count_uses_quantity(self, tmp_data, seeded_rooms):
-        """涉及台数按数量累加，而不是数记录条数"""
+        row = read_rows()[0]
+        assert row[4] == 0            # 已解决不计损坏
+        assert row[3] == 80           # 全算正常
+
+    def test_normal_plus_broken_equals_total(self, tmp_data, seeded_rooms):
+        """正常 + 损坏 = 总数（领导能对上账）"""
+        seed_rooms([('教学楼A', 'A101', 80)])
         seed([
             {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
              'status': repair_log.STATUS_PENDING, 'quantity': 4},
             {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'status': repair_log.STATUS_PENDING, 'quantity': 3},
+             'status': repair_log.STATUS_SELF_FIX, 'quantity': 2},
+            {'id': 'R003', 'building': '教学楼A', 'room': 'A101',
+             'status': repair_log.STATUS_RESOLVED, 'quantity': 9},
         ])
-        rows = read_sheet('故障统计')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        assert row[2] == 2       # 2 条记录
-        assert row[3] == 7       # 7 台设备
 
-    def test_cause_distribution(self, tmp_data, seeded_rooms):
+        row = read_rows()[0]
+        assert row[2] == 80
+        assert row[3] + row[4] == row[2]
+
+    def test_multiple_faults_accumulate(self, tmp_data, seeded_rooms):
+        """多条记录的台数累加"""
+        seed_rooms([('教学楼A', 'A101', 80)])
         seed([
             {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
-             'conclusion': '原因：电源损坏。\n处理：换。'},
+             'status': repair_log.STATUS_PENDING, 'quantity': 3},
             {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
-             'conclusion': '原因：电源损坏。\n处理：换。'},
-            {'id': 'R003', 'building': '教学楼A', 'room': 'A101',
-             'conclusion': '原因：网线松动。\n处理：插紧。'},
+             'status': repair_log.STATUS_REPORTED, 'quantity': 2},
         ])
-        rows = read_sheet('故障统计')
-        row = [r for r in rows if r and r[1] == 'A101'][0]
-        causes = str(row[7])
-        assert '电源损坏。×2' in causes
-        assert '网线松动。×1' in causes
+        assert read_rows()[0][4] == 5
 
 
-# ---------------- 未录入台账 ----------------
+# ---------------- 损坏原因 ----------------
 
-class TestUnlinked:
+class TestCauses:
 
-    def test_orphan_records_preserved(self, tmp_data, seeded_rooms):
-        """对不上台账的记录不丢失，进入独立工作表"""
-        seed_rooms([('教学楼A', 'A101', 60)])
+    def test_dash_when_healthy(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        assert read_rows()[0][5] == '—'
+
+    def test_reason_with_count(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'conclusion': '原因：电源供应器损坏，无法供电。\n处理：更换。',
+               'quantity': 3}])
+
+        cause = read_rows()[0][5]
+        assert '电源供应器损坏' in cause
+        assert '×3' in cause
+
+    def test_multiple_reasons_on_separate_lines(self, tmp_data, seeded_rooms):
+        """多个原因各占一行，便于阅读"""
+        seed_rooms([('教学楼A', 'A101', 80)])
         seed([
-            {'id': 'R001', 'building': '教学楼A', 'room': 'A101'},
-            {'id': 'R002', 'room': '999'},      # 台账里没有 999
+            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+             'conclusion': '原因：电源损坏。\n处理：换。', 'quantity': 2},
+            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
+             'conclusion': '原因：网线松动。\n处理：插紧。', 'quantity': 1},
         ])
 
-        rows = read_sheet('未录入台账的故障')
-        ids = [r[2] for r in rows if r and r[2]]
-        assert 'R002' in ids
-        assert 'R001' not in ids, '能对上台账的不该出现在这里'
+        cause = read_rows()[0][5]
+        lines = cause.split('\n')
+        assert len(lines) == 2
+        assert any('电源损坏' in x and '×2' in x for x in lines)
+        assert any('网线松动' in x and '×1' in x for x in lines)
 
-    def test_all_linked_shows_placeholder(self, tmp_data, seeded_rooms):
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101'}])
-        rows = read_sheet('未录入台账的故障')
-        text = ' '.join(str(c) for r in rows for c in r if c)
-        assert '都已对应' in text
+    def test_reason_is_shortened(self, tmp_data, seeded_rooms):
+        """长句原因要压成短语，不能把表格撑爆"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{
+            'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+            'conclusion': '原因：多台电脑按开机键无反应、指示灯不亮，'
+                          '排查电源线与插座后仍无效，判断为机箱电源或供电线路故障\n'
+                          '处理：报修。',
+            'quantity': 3,
+        }])
 
-    def test_building_backfilled_when_unambiguous(self, tmp_data, seeded_rooms):
-        """教室号能唯一对上时，自动补全教学楼，便于分组"""
-        seed_rooms([('教学楼A', 'A101', 60)])
-        seed([{'id': 'R001', 'room': 'A101'}])   # 没写教学楼
-
-        recs = excel_export.normalize_records()
-        assert recs[0]['building'] == '教学楼A'
-        assert recs[0]['in_ledger'] is True
+        cause = read_rows()[0][5]
+        # 应提取出真正的故障（电源相关），而不是整段叙述
+        assert len(cause) < 30
+        assert '电源' in cause
 
 
-# ---------------- 工作簿整体 ----------------
+class TestShortenReason:
+    """原因精简的单元测试"""
 
-class TestWorkbook:
+    @pytest.mark.parametrize('raw,expect_kw', [
+        ('电源供应器损坏，无法供电。', '电源供应器损坏'),
+        ('显示器本身故障，接其他机位也无画面。', '显示器'),
+        ('教室总电源跳闸，导致整间教室电脑无法供电。', '跳闸'),
+        ('外部供电已排除，判断为主机电源或主板故障。', '电源'),
+        ('内存条接触不良', '内存条'),
+    ])
+    def test_shorten(self, raw, expect_kw):
+        out = excel_export._shorten_reason(raw)
+        assert expect_kw in out
+        assert len(out) <= 22
 
-    def test_all_sheets_present(self, tmp_data, seeded_rooms):
-        _, data = excel_export.export_to_bytes()
+    def test_empty(self):
+        assert excel_export._shorten_reason('') == ''
+
+
+# ---------------- 台账外教室 ----------------
+
+class TestUnregisteredRooms:
+
+    def test_room_not_in_ledger_still_listed(self, tmp_data, seeded_rooms):
+        """记录里有、台账没有的教室也要列出，不能丢数据"""
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': '999',
+               'quantity': 2}])
+        rows = read_rows()
+        rooms = [r[1] for r in rows]
+        assert '999' in rooms
+
+    def test_unknown_total_shows_dash(self, tmp_data, seeded_rooms):
+        """台账未登记总数时用「—」，不能用 0（会被误读成没有设备）"""
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': '999',
+               'quantity': 2}])
+        row = [r for r in read_rows() if r[1] == '999'][0]
+        assert row[2] == '—'
+        assert row[4] == 2
+
+
+# ---------------- 合计行 ----------------
+
+class TestTotalRow:
+
+    def test_totals(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80), ('教学楼A', 'A102', 60)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'quantity': 4}])
+
+        total_row = read_rows(include_total=True)[-1]
+        assert total_row[0] == '合计'
+        assert total_row[2] == 140       # 80 + 60
+        assert total_row[3] == 136       # 140 - 4
+        assert total_row[4] == 4
+
+    def test_healthy_rate(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 100)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'quantity': 5}])
+        assert '95.0%' in str(read_rows(include_total=True)[-1][5])
+
+
+# ---------------- 边界情况 ----------------
+
+class TestEdgeCases:
+
+    def test_empty_data(self, tmp_data, seeded_rooms):
+        """没有任何记录时也要能打开"""
+        fn, data = excel_export.export_to_bytes()
         wb = load_workbook(io.BytesIO(data))
-        for name in ['总览', '故障总表', '教室现状', '损坏明细',
-                     '故障统计', '未录入台账的故障']:
-            assert name in wb.sheetnames, f'缺少工作表 {name}'
-
-    def test_filename_has_timestamp(self, tmp_data, seeded_rooms):
-        filename, _ = excel_export.export_to_bytes()
-        assert filename.startswith('机房故障报表_')
-        assert filename.endswith('.xlsx')
-
-    def test_empty_data_does_not_crash(self, tmp_data, seeded_rooms):
-        """没有任何记录时也要能导出一份可用文件"""
-        filename, data = excel_export.export_to_bytes()
-        wb = load_workbook(io.BytesIO(data))
-        assert '总览' in wb.sheetnames
+        assert len(wb.sheetnames) == 1
         assert len(data) > 0
+
+    def test_no_ledger_no_records(self, tmp_data, seeded_rooms):
+        rows = read_rows()
+        assert rows == [] or rows[-1][0] == '合计'
+
+    def test_broken_exceeds_total(self, tmp_data, seeded_rooms):
+        """损坏数超过总数时，正常数不应为负"""
+        seed_rooms([('教学楼A', 'A101', 2)])
+        seed([{'id': f'R00{i}', 'building': '教学楼A', 'room': 'A101'}
+              for i in range(1, 6)])
+        row = read_rows()[0]
+        assert row[3] >= 0
+
+    def test_placeholder_room_skipped(self, tmp_data, seeded_rooms):
+        """「未填写」不是真实教室，不应占一行"""
+        seed([{'id': 'R001', 'room': '未填写', 'quantity': 3}])
+        rooms = [r[1] for r in read_rows() if r[0] != '合计']
+        assert '未填写' not in rooms
