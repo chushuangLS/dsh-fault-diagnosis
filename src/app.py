@@ -122,10 +122,42 @@ def _status_for_session(ds):
     return repair_log.STATUS_PENDING
 
 
+def _asset_version():
+    """
+    静态资源版本号（用于避免浏览器缓存旧文件）
+
+    为什么需要：
+      改完 CSS/JS 后刷新页面，浏览器可能仍用缓存里的旧文件，
+      表现为"改了没生效"，排查起来很浪费时间。
+
+      这里用静态文件的最后修改时间做版本号 —— 文件一改，版本就变，
+      浏览器会自动重新拉取，不需要手动 Ctrl+F5。
+    """
+    static_dir = os.path.join(BASE_DIR, 'web', 'static')
+    stamps = []
+    try:
+        for name in ('style.css', 'app.js'):
+            path = os.path.join(static_dir, name)
+            if os.path.exists(path):
+                stamps.append(str(int(os.path.getmtime(path))))
+    except OSError:
+        pass
+    return '-'.join(stamps) if stamps else '1'
+
+
+# 服务启动时间：渲染到页面上，方便一眼看出跑的是不是最新代码
+SERVER_START = time.strftime('%Y-%m-%d %H:%M')
+
+
 @app.route('/')
 def index():
     """主页"""
-    return render_template('index.html')
+    return render_template(
+        'index.html',
+        asset_version=_asset_version(),
+        server_start=SERVER_START,
+        app_version=version.VERSION,
+    )
 
 
 @app.route('/api/chat', methods=['POST'])

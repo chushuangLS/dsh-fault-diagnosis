@@ -4,9 +4,181 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>机房故障智能诊断助手</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ asset_version }}">
 </head>
 <body>
+
+<!-- ============================================================
+     图标库（内联 SVG 雪碧图）
+
+     为什么不用 emoji：
+       emoji 在不同系统渲染差异很大（Windows 是彩色卡通、Mac 是另一套），
+       大小、基线、线条粗细都无法控制，一眼看去像"学生作品"。
+       内联 SVG 用 currentColor 跟随文字颜色，线条粗细统一，观感专业。
+     ============================================================ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- 通用属性：线性风格，1.6 描边，圆角端点 -->
+    <g id="_icon-base"></g>
+  </defs>
+
+  <symbol id="i-tool" viewBox="0 0 24 24">
+    <path d="M14.7 6.3a4 4 0 0 0 5 5l-9 9a2.1 2.1 0 0 1-3-3l9-9z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M14.7 6.3 17 4a4 4 0 0 1 3 1l-2.3 2.3"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-chat" viewBox="0 0 24 24">
+    <path d="M20 12a7 7 0 0 1-7 7H8l-4 3v-4.5A7 7 0 0 1 4 12v-.5A7.5 7.5 0 0 1 11.5 4h1A7.5 7.5 0 0 1 20 11.5V12z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="9" cy="12" r="1" fill="currentColor"/>
+    <circle cx="12.5" cy="12" r="1" fill="currentColor"/>
+    <circle cx="16" cy="12" r="1" fill="currentColor"/>
+  </symbol>
+
+  <symbol id="i-list" viewBox="0 0 24 24">
+    <rect x="4" y="4" width="16" height="16" rx="2.5"
+          fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-chart" viewBox="0 0 24 24">
+    <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-task" viewBox="0 0 24 24">
+    <rect x="4" y="4" width="16" height="16" rx="2.5"
+          fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8 12.5l2.5 2.5L16 9.5"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-monitor" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="12" rx="2"
+          fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8 20h8M12 16v4"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-check" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M8 12.5l2.5 2.5L16 9.5"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-wrench" viewBox="0 0 24 24">
+    <path d="M15.5 3.5a5 5 0 0 0-6 6.6L4 15.6a2 2 0 1 0 2.8 2.8l5.5-5.5a5 5 0 0 0 6.6-6l-2.2 2.2-2.6-.6-.6-2.6 2-1.9z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-alert" viewBox="0 0 24 24">
+    <path d="M12 4.5 21 20H3l9-15.5z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M12 10v4M12 17h.01"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-clock" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M12 7.5V12l3 2"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-download" viewBox="0 0 24 24">
+    <path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-edit" viewBox="0 0 24 24">
+    <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M14.5 6.5 17.5 9.5"
+          fill="none" stroke="currentColor" stroke-width="1.6"/>
+  </symbol>
+
+  <symbol id="i-trash" viewBox="0 0 24 24">
+    <path d="M5 7h14M10 7V5h4v2M6 7l1 12h10l1-12"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-search" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="6.5"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="m16 16 4 4"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-inbox" viewBox="0 0 24 24">
+    <path d="M4 13h4l1.5 3h5L16 13h4"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M4 13 6.5 5h11L20 13v6H4v-6z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+  </symbol>
+
+  <symbol id="i-door" viewBox="0 0 24 24">
+    <path d="M6 21V4h9l3 2v15"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M4 21h16" fill="none" stroke="currentColor"
+          stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="12.5" cy="12.5" r="1" fill="currentColor"/>
+  </symbol>
+
+  <symbol id="i-close" viewBox="0 0 24 24">
+    <path d="M7 7l10 10M17 7L7 17"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-building" viewBox="0 0 24 24">
+    <path d="M4 21V6l7-3v18M11 21h9V10l-9-3"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M14 12h3M14 16h3M7 10h1M7 14h1M7 18h1"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-note" viewBox="0 0 24 24">
+    <path d="M6 3h9l4 4v14H6z"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round"/>
+    <path d="M14.5 3v4.5H19" fill="none" stroke="currentColor"
+          stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M9 12h6M9 15.5h4"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+</svg>
 
 <!-- 背景装饰层 -->
 <div class="bg-decor">
@@ -21,28 +193,36 @@
   <div class="landing-inner">
 
     <div class="hero">
-      <div class="hero-icon">🔧</div>
+      <div class="hero-icon">
+        <svg class="icon" width="34" height="34"><use href="#i-tool"/></svg>
+      </div>
       <h1>机房故障智能诊断助手</h1>
       <p class="hero-sub">对话式排查 · AI 驱动 · 自动记录报修台账</p>
     </div>
 
     <div class="entry-grid">
       <div class="entry-card" data-goto="chat">
-        <div class="entry-icon">💬</div>
+        <div class="entry-icon">
+          <svg class="icon" width="26" height="26"><use href="#i-chat"/></svg>
+        </div>
         <h3>开始诊断</h3>
         <p>描述故障现象，AI 引导逐步排查</p>
         <span class="entry-arrow">→</span>
       </div>
 
       <div class="entry-card" data-goto="records">
-        <div class="entry-icon">📋</div>
+        <div class="entry-icon">
+          <svg class="icon" width="26" height="26"><use href="#i-list"/></svg>
+        </div>
         <h3>报修台账</h3>
         <p>查看故障记录与处理进度</p>
         <span class="entry-arrow">→</span>
       </div>
 
       <div class="entry-card" data-goto="stats">
-        <div class="entry-icon">📊</div>
+        <div class="entry-icon">
+          <svg class="icon" width="26" height="26"><use href="#i-chart"/></svg>
+        </div>
         <h3>数据看板</h3>
         <p>故障统计与可视化分析</p>
         <span class="entry-arrow">→</span>
@@ -75,7 +255,9 @@
   <!-- 顶部品牌栏 -->
   <header class="topbar">
     <div class="brand" id="brand-home" title="返回首页">
-      <span class="logo">🔧</span>
+      <span class="logo">
+        <svg class="icon" width="20" height="20"><use href="#i-tool"/></svg>
+      </span>
       <div>
         <h1>机房故障智能诊断助手</h1>
         <p class="sub">对话式排查 · AI 驱动 · 自动记录</p>
@@ -162,7 +344,9 @@
           <select id="pick-room" class="rp-select" disabled>
             <option value="">选择教室</option>
           </select>
-          <button id="rp-clear" class="rp-clear" title="清除选择">✕</button>
+          <button id="rp-clear" class="rp-clear" title="清除选择">
+            <svg class="icon" width="15" height="15"><use href="#i-close"/></svg>
+          </button>
         </div>
 
         <div class="composer">
@@ -255,8 +439,9 @@
         </div>
 
         <div id="stats-empty" class="empty hidden">
-          <span class="icon">📊</span>
-          暂无统计数据，先去诊断几个故障吧
+          <svg class="icon empty-icon" width="40" height="40"><use href="#i-chart"/></svg>
+          <p>暂无统计数据</p>
+          <span class="empty-hint">先去「诊断」页记录几个故障吧</span>
         </div>
       </div>
     </section>
@@ -344,7 +529,9 @@
   <aside id="drawer" class="drawer">
     <div class="drawer-head">
       <h3>实时状态</h3>
-      <button id="drawer-close" class="drawer-close" title="收起">✕</button>
+      <button id="drawer-close" class="drawer-close" title="收起">
+      <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+    </button>
     </div>
 
     <div class="drawer-section">
@@ -399,7 +586,9 @@
     <div class="modal">
       <div class="modal-head">
         <h3 id="admin-title">教室与设备管理</h3>
-        <button id="admin-close" class="modal-close" title="关闭">✕</button>
+        <button id="admin-close" class="modal-close" title="关闭">
+          <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+        </button>
       </div>
 
       <div class="modal-body">
@@ -421,9 +610,21 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       服务信息（右下角）
+
+       显示服务启动时间与版本号。
+       用途：改完代码后如果忘了重启服务，页面上仍是旧时间，
+       一眼就能发现"跑的不是最新代码"。
+       ============================================================ -->
+  <div class="server-info" title="若此处时间早于你的最近一次改动，说明服务需要重启">
+    <span class="si-dot"></span>
+    <span class="si-text">v{{ app_version }} · 服务启动于 {{ server_start }}</span>
+  </div>
+
 </div>
 
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

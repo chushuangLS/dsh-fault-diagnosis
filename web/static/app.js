@@ -4,6 +4,20 @@
 
 const $ = (sel) => document.querySelector(sel);
 
+/**
+ * 内联 SVG 图标（供动态生成的 HTML 使用）
+ *
+ * 统一走这里，避免各处直接写 emoji ——
+ * emoji 在不同系统渲染差异大，且无法用 CSS 控制大小与颜色。
+ *
+ * @param {string} name 图标 id（定义见 index.html 的 <symbol>）
+ * @param {number} size 像素尺寸
+ */
+function icon(name, size = 16) {
+  return `<svg class="icon" width="${size}" height="${size}" aria-hidden="true">`
+       + `<use href="#${name}"/></svg>`;
+}
+
 /* ============================================================
    落地页 ↔ 主应用 切换
    ============================================================ */
@@ -363,7 +377,8 @@ async function sendMessage() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      body.textContent = '⚠️ ' + (err.error || '请求失败');
+      body.innerHTML = `<span class="inline-warn">${icon('i-alert', 15)} `
+                     + escapeHtml(err.error || '请求失败') + '</span>';
       dots.remove();
       setBusy(false);
       return;
@@ -433,7 +448,7 @@ async function sendMessage() {
           if (evt.finished && evt.case_saved) {
             const note = document.createElement('div');
             note.className = 'kb-note';
-            note.textContent = `📚 本次诊断已沉淀为新案例，知识库可以复用这个经验了`;
+            note.textContent = '本次诊断已沉淀为新案例，知识库可以复用这个经验了';
             body.parentNode.appendChild(note);
           }
 
@@ -471,7 +486,8 @@ async function sendMessage() {
         else if (evt.type === 'error') {
           if (cursor) cursor.remove();
           if (dots.parentNode) dots.remove();
-          body.textContent = '⚠️ ' + evt.message;
+          body.innerHTML = `<span class="inline-warn">${icon('i-alert', 15)} `
+                         + escapeHtml(evt.message) + '</span>';
         }
       }
     }
@@ -479,7 +495,8 @@ async function sendMessage() {
   } catch (err) {
     if (cursor) cursor.remove();
     if (dots.parentNode) dots.remove();
-    body.textContent = '⚠️ 网络错误：' + err.message;
+    body.innerHTML = `<span class="inline-warn">${icon('i-alert', 15)} 网络错误：`
+                   + escapeHtml(err.message) + '</span>';
   }
 
   setBusy(false);
@@ -513,7 +530,7 @@ async function resetSession() {
     sessionState = '待开始';
     updateDrawer();
   } catch (err) {
-    addTurn('⚠️ 重置失败：' + err.message, 'bot');
+    addTurn('重置失败：' + err.message, 'bot');
   }
   setBusy(false);
 }
@@ -622,7 +639,7 @@ async function editRecordDialog(rec) {
     <div class="modal" style="max-width:560px">
       <div class="modal-head">
         <h3>编辑记录 ${escapeHtml(rec['记录编号'])}</h3>
-        <button class="modal-close" id="er-close">✕</button>
+        <button class="modal-close" id="er-close" title="关闭">${icon('i-close', 16)}</button>
       </div>
       <div class="modal-body">
         <div class="tf-grid">
@@ -714,9 +731,28 @@ async function editRecordDialog(rec) {
   });
 }
 
+/**
+ * 骨架屏 HTML（加载占位）
+ *
+ * 为什么用骨架屏而不是"加载中…"：
+ *   骨架屏提前展示最终布局的轮廓，视觉上更接近"马上就出来"，
+ *   感知等待时间明显更短；纯文字会让人觉得页面卡住了。
+ */
+function skeletonCards(n = 3, height = 96) {
+  return Array.from({ length: n })
+    .map(() => `<div class="skeleton skeleton-card" style="height:${height}px"></div>`)
+    .join('');
+}
+
+function skeletonLines(n = 3) {
+  return Array.from({ length: n })
+    .map(() => '<div class="skeleton skeleton-line"></div>')
+    .join('');
+}
+
 async function loadRecords() {
   const list = $('#record-list');
-  list.innerHTML = '<div class="empty">加载中…</div>';
+  list.innerHTML = skeletonCards(4);
 
   try {
     const url = '/api/records' + (currentStatus ? '?status=' + encodeURIComponent(currentStatus) : '');
@@ -758,9 +794,11 @@ async function loadRecords() {
     });
 
     if (!data.records.length) {
-      list.innerHTML = `<div class="empty"><span class="icon">📋</span>暂无${
-        currentStatus ? '「' + escapeHtml(currentStatus) + '」状态的' : ''
-      }记录</div>`;
+      list.innerHTML = `<div class="empty">
+        <svg class="icon empty-icon" width="40" height="40"><use href="#i-inbox"/></svg>
+        <p>暂无${currentStatus ? '「' + escapeHtml(currentStatus) + '」状态的' : ''}记录</p>
+        <span class="empty-hint">去「诊断」页描述一个故障，这里会自动记录</span>
+      </div>`;
       return;
     }
 
@@ -1088,7 +1126,7 @@ $('#back-to-list').addEventListener('click', () => {
 // ---------- 加载教室列表 ----------
 async function loadClassrooms() {
   const box = $('#building-list');
-  box.innerHTML = '<div class="empty">加载中…</div>';
+  box.innerHTML = skeletonCards(3, 72);
 
   try {
     const res = await fetch('/api/classrooms');
@@ -1097,8 +1135,9 @@ async function loadClassrooms() {
 
     if (!d.buildings.length) {
       box.innerHTML = `<div class="empty">
-        <span class="icon">🏫</span>
-        还没有教学楼，请在上方添加
+        ${icon('i-building', 40).replace('class="icon"', 'class="icon empty-icon"')}
+        <p>还没有教学楼</p>
+        <span class="empty-hint">点击上方「添加教学楼」开始建立台账</span>
       </div>`;
       return;
     }
@@ -1106,13 +1145,15 @@ async function loadClassrooms() {
     box.innerHTML = d.buildings.map(b => {
       const rooms = b.rooms.length
         ? b.rooms.map(r => roomRowHtml(b.name, r)).join('')
-        : '<div class="empty" style="padding:22px;font-size:13px">该教学楼下还没有教室</div>';
+        : `<div class="empty" style="padding:22px">
+             <span class="empty-hint">该教学楼下还没有教室</span>
+           </div>`;
 
       return `
         <div class="building-group">
           <div class="building-head">
             <span class="building-name">
-              🏢 ${escapeHtml(b.name)}
+              ${icon('i-building', 15)} ${escapeHtml(b.name)}
               <span class="count">${b.rooms.length} 间</span>
             </span>
             <button class="icon-btn" data-del-building="${escapeHtml(b.name)}">删除</button>
@@ -1258,7 +1299,7 @@ function openFaultForm(building, roomName, onDone) {
         </select>
       </td>
       <td>
-        <button class="ff-del" title="删除这一行">✕</button>
+        <button class="ff-del" title="删除这一行">${icon('i-close', 14)}</button>
       </td>
     </tr>`;
 
@@ -1266,7 +1307,7 @@ function openFaultForm(building, roomName, onDone) {
     <div class="modal" style="max-width:760px">
       <div class="modal-head">
         <h3>登记故障 · ${escapeHtml(building)} ${escapeHtml(roomName)}</h3>
-        <button class="modal-close" id="ff-close">✕</button>
+        <button class="modal-close" id="ff-close" title="关闭">${icon('i-close', 16)}</button>
       </div>
       <div class="modal-body">
         <p class="ff-hint">
@@ -1430,7 +1471,8 @@ function openFaultForm(building, roomName, onDone) {
 async function openRoomDetail(building, roomName) {
   showRoomView();
   $('#admin-title').textContent = `教室详情 · ${building}-${roomName}`;
-  $('#room-detail').innerHTML = '<div class="empty">加载中…</div>';
+  $('#room-detail').innerHTML =
+    skeletonCards(1, 90) + '<div style="height:14px"></div>' + skeletonLines(4);
 
   // 取教室台账 + 该教室的故障记录
   let d;
@@ -1487,10 +1529,10 @@ async function openRoomDetail(building, roomName) {
           </div>
           <div class="cause-actions">
             ${done
-              ? `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="未报修">↩ 恢复未报修</button>`
-              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="待自修">🔧 改为待自修</button>
+              ? `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="未报修">恢复未报修</button>`
+              : `<button data-set-status="${escapeHtml(r['记录编号'])}" data-to="待自修">${icon('i-wrench', 13)} 改为待自修</button>
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
-                 <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">✓ 标记已解决</button>`}
+                 <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">${icon('i-check', 13)} 标记已解决</button>`}
             <button data-edit-record="${escapeHtml(r['记录编号'])}">编辑</button>
             <button class="del-btn" data-del-record="${escapeHtml(r['记录编号'])}">删除</button>
           </div>
@@ -1504,16 +1546,20 @@ async function openRoomDetail(building, roomName) {
 
     <div class="detail-stats detail-stats-4">
       <div class="detail-stat tot">
-        <div class="dv">${total}</div><div class="dl">电脑总数</div>
+        <div class="dv">${total}</div>
+        <div class="dl">${icon('i-monitor', 13)} 电脑总数</div>
       </div>
       <div class="detail-stat ok">
-        <div class="dv">${healthy}</div><div class="dl">正常</div>
+        <div class="dv">${healthy}</div>
+        <div class="dl">${icon('i-check', 13)} 正常</div>
       </div>
       <div class="detail-stat selffix">
-        <div class="dv">${selfFix}</div><div class="dl">🔧 待自修</div>
+        <div class="dv">${selfFix}</div>
+        <div class="dl">${icon('i-wrench', 13)} 待自修</div>
       </div>
       <div class="detail-stat bad">
-        <div class="dv">${hardBroken}</div><div class="dl">⚠ 需报修</div>
+        <div class="dv">${hardBroken}</div>
+        <div class="dl">${icon('i-alert', 13)} 需报修</div>
       </div>
     </div>
 
@@ -1856,7 +1902,7 @@ $('#tf-submit').addEventListener('click', async () => {
 // 加载清单
 async function loadTasks() {
   const list = $('#task-list');
-  list.innerHTML = '<div class="empty">加载中…</div>';
+  list.innerHTML = skeletonCards(3, 76);
 
   try {
     const url = '/api/tasks' + (taskFilter ? '?status=' + encodeURIComponent(taskFilter) : '');
@@ -1875,8 +1921,11 @@ async function loadTasks() {
 
     if (!d.tasks.length) {
       list.innerHTML = `<div class="empty">
-        <span class="icon">📝</span>
-        ${taskFilter ? '没有「' + escapeHtml(taskFilter) + '」的报备' : '还没有报备记录，点上面的「添加报备」开始'}
+        ${icon('i-note', 40).replace('class="icon"', 'class="icon empty-icon"')}
+        <p>${taskFilter ? '没有「' + escapeHtml(taskFilter) + '」的报备' : '还没有报备记录'}</p>
+        <span class="empty-hint">${
+          taskFilter ? '换个筛选条件看看' : '点上方「添加报备」记录老师的日常需求'
+        }</span>
       </div>`;
       return;
     }
@@ -1900,7 +1949,9 @@ async function loadTasks() {
             <span class="kv">教室 <b>${escapeHtml(t.building ? t.building + ' · ' + t.room : t.room)}</b></span>
             ${t.teacher ? `<span class="kv">教师 <b>${escapeHtml(t.teacher)}</b></span>` : ''}
             ${t.major ? `<span class="kv">专业 <b>${escapeHtml(t.major)}</b></span>` : ''}
-            ${t.due ? `<span class="kv">预计 <b class="ti-due">${escapeHtml(t.due)}</b>${isOverdue ? ' ⚠️ 已逾期' : ''}</span>` : ''}
+            ${t.due ? `<span class="kv">预计 <b class="ti-due">${escapeHtml(t.due)}</b>${
+              isOverdue ? ` <span class="overdue-tag">${icon('i-alert', 12)} 已逾期</span>` : ''
+            }</span>` : ''}
             ${t.detail ? `<div style="margin-top:5px">${escapeHtml(t.detail)}</div>` : ''}
             <div style="margin-top:5px;font-size:12px;color:var(--text-faint)">
               提交于 ${escapeHtml(t.created)}${isDone && t.finished ? ' · 完成于 ' + escapeHtml(t.finished) : ''}
@@ -1908,7 +1959,7 @@ async function loadTasks() {
           </div>
           <div class="ti-actions">
             <button class="${isDone ? '' : 'done-btn'}" data-toggle="${escapeHtml(t.id)}">
-              ${isDone ? '↩ 标记待完成' : '✓ 标记已完成'}
+              ${isDone ? '标记待完成' : `${icon('i-check', 13)} 标记已完成`}
             </button>
             <button data-edit="${escapeHtml(t.id)}">改预计时间</button>
             <button class="del-btn" data-del-task="${escapeHtml(t.id)}">删除</button>
