@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>机房故障智能诊断助手 · 技术文档</title>
+<style>
+/* ============================================================
+   技术文档排版样式（用于生成 PDF）
+
+   打印优先设计：
+     · A4 页面，页边距 18mm
+     · 正文 10.5pt / 行高 1.7，中文阅读舒适
+     · 中文字体用微软雅黑，代码用等宽
+     · 标题不与正文分离（page-break-after: avoid）
+   ============================================================ */
+
+@page {
+  size: A4;
+  margin: 18mm 16mm 16mm;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.75;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+/* ---------- 封面 ---------- */
+.cover {
+  height: 247mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  page-break-after: always;
+  text-align: center;
+}
+
+.cover-badge {
+  display: inline-block;
+  margin: 0 auto 24px;
+  padding: 5px 16px;
+  border: 1px solid #2563eb;
+  border-radius: 100px;
+  color: #2563eb;
+  font-size: 10pt;
+  letter-spacing: 1px;
+}
+
+.cover h1 {
+  font-size: 27pt;
+  font-weight: 700;
+  color: #0f2544;
+  letter-spacing: -0.5px;
+  margin-bottom: 10px;
+}
+
+.cover .sub {
+  font-size: 13pt;
+  color: #4a5568;
+  margin-bottom: 44px;
+  font-weight: 400;
+}
+
+.cover-meta {
+  margin: 0 auto;
+  border-collapse: collapse;
+  font-size: 10.5pt;
+}
+.cover-meta td {
+  padding: 7px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.cover-meta td:first-child {
+  color: #718096;
+  text-align: right;
+  padding-right: 22px;
+}
+.cover-meta td:last-child { color: #1a202c; font-weight: 500; }
+
+.cover-foot {
+  margin-top: 60px;
+  font-size: 9.5pt;
+  color: #a0aec0;
+}
+
+/* ---------- 标题层级 ---------- */
+h1 {
+  font-size: 17pt;
+  color: #0f2544;
+  margin: 26px 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 2px solid #2563eb;
+  page-break-after: avoid;
+  page-break-before: always;
+}
+h1:first-of-type { page-break-before: avoid; }
+
+h2 {
+  font-size: 13pt;
+  color: #1e40af;
+  margin: 20px 0 9px;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 11.5pt;
+  color: #2d3748;
+  margin: 15px 0 7px;
+  page-break-after: avoid;
+}
+
+p { margin-bottom: 9px; }
+
+/* ---------- 列表 ---------- */
+ul, ol { margin: 8px 0 12px 22px; }
+li { margin-bottom: 4px; }
+
+/* ---------- 代码 ---------- */
+code {
+  font-family: "Consolas", "Cascadia Mono", monospace;
+  font-size: 9.5pt;
+  background: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #b91c1c;
+}
+
+pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #2563eb;
+  border-radius: 4px;
+  padding: 10px 13px;
+  margin: 10px 0 13px;
+  font-size: 9pt;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+}
+pre code {
+  background: none;
+  padding: 0;
+  color: #1e293b;
+  font-size: 9pt;
+}
+
+/* ---------- 表格 ---------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 14px;
+  font-size: 9.5pt;
+  page-break-inside: avoid;
+}
+th {
+  background: #1e40af;
+  color: #fff;
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+tr:nth-child(even) td { background: #f8fafc; }
+
+/* ---------- 提示框 ---------- */
+.callout {
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  padding: 10px 14px;
+  margin: 12px 0;
+  border-radius: 0 4px 4px 0;
+  page-break-inside: avoid;
+}
+.callout.warn {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.callout.good {
+  border-left-color: #059669;
+  background: #ecfdf5;
+}
+.callout b { color: #0f2544; }
+
+/* ---------- 目录 ---------- */
+.toc { page-break-after: always; }
+.toc h2 {
+  font-size: 16pt;
+  color: #0f2544;
+  border-bottom: 2px solid #2563eb;
+  padding-bottom: 8px;
+  margin-bottom: 18px;
+}
+.toc ol { list-style: none; margin-left: 0; }
+.toc li {
+  padding: 7px 0;
+  border-bottom: 1px dotted #cbd5e0;
+  font-size: 11pt;
+  display: flex;
+  justify-content: space-between;
+}
+.toc li span:first-child { color: #2d3748; }
+.toc li span:last-child { color: #718096; font-size: 10pt; }
+.toc .l2 {
+  padding-left: 24px;
+  font-size: 10pt;
+  border-bottom: none;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.toc .l2 span:first-child { color: #718096; }
+
+/* ---------- 页脚页码（由浏览器打印时生成） ---------- */
+@page {
+  @bottom-center {
+    content: counter(page);
+    font-family: "Microsoft YaHei", sans-serif;
+    font-size: 9pt;
+    color: #a0aec0;
+  }
+}
+
+/* 避免元素被切断 */
+.no-break { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 封面 ==================== -->
+<div class="cover">
+  <div class="cover-badge">传智杯 · Vibe Coding 挑战赛</div>
+  <h1>机房故障智能诊断助手</h1>
+  <p class="sub">对话式排查 · AI 驱动 · 面向高校机房运维</p>
+
+  <table class="cover-meta">
+    <tr><td>作品名称</td><td>机房故障智能诊断助手</td></tr>
+    <tr><td>选题方向</td><td>场景化轻量 RAG 知识库</td></tr>
+    <tr><td>技术栈</td><td>Python · Flask · DeepSeek API · 原生前端</td></tr>
+    <tr><td>当前版本</td><td>v0.10.0</td></tr>
+    <tr><td>代码仓库</td><td>github.com/liyishuo1/dsh-fault-diagnosis</td></tr>
+    <tr><td>作者</td><td>李一硕</td></tr>
+  </table>
+
+  <div class="cover-foot">
+    本文档由项目开发过程实时记录整理而成
+  </div>
+</div>
+
+<!-- ==================== 目录 ==================== -->
+<div class="toc">
+  <h2>目 录</h2>
+  <ol>
+    <li><span>一、项目概述</span><span>03</span></li>
+    <li class="l2"><span>1.1 真实需求来源</span><span></span></li>
+    <li class="l2"><span>1.2 要解决的问题</span><span></span></li>
+    <li class="l2"><span>1.3 作品定位</span><span></span></li>
+
+    <li><span>二、系统架构</span><span>04</span></li>
+    <li class="l2"><span>2.1 整体结构</span><span></span></li>
+    <li class="l2"><span>2.2 模块职责</span><span></span></li>
+    <li class="l2"><span>2.3 数据存储设计</span><span></span></li>
+
+    <li><span>三、核心技术实现</span><span>07</span></li>
+    <li class="l2"><span>3.1 对话式逐层排查</span><span></span></li>
+    <li class="l2"><span>3.2 轻量 RAG 知识库</span><span></span></li>
+    <li class="l2"><span>3.3 知识库自动沉淀</span><span></span></li>
+    <li class="l2"><span>3.4 设备状态三态模型</span><span></span></li>
+    <li class="l2"><span>3.5 并发写入保护</span><span></span></li>
+
+    <li><span>四、意图控制策略</span><span>13</span></li>
+    <li class="l2"><span>4.1 系统提示词设计</span><span></span></li>
+    <li class="l2"><span>4.2 如何约束 AI 的输出</span><span></span></li>
+    <li class="l2"><span>4.3 提示词的迭代过程</span><span></span></li>
+
+    <li><span>五、工程质量保障</span><span>17</span></li>
+    <li class="l2"><span>5.1 自动化测试</span><span></span></li>
+    <li class="l2"><span>5.2 持续集成</span><span></span></li>
+    <li class="l2"><span>5.3 典型缺陷与修复</span><span></span></li>
+
+    <li><span>六、可复现性论证</span><span>22</span></li>
+    <li class="l2"><span>6.1 环境与依赖</span><span></span></li>
+    <li class="l2"><span>6.2 复现步骤</span><span></span></li>
+    <li class="l2"><span>6.3 演进链路</span><span></span></li>
+
+    <li><span>七、AI 协作过程</span><span>26</span></li>
+    <li class="l2"><span>7.1 协作方式</span><span></span></li>
+    <li class="l2"><span>7.2 典型协作案例</span><span></span></li>
+  </ol>
+</div>
+
+<!-- ==================== 一、项目概述 ==================== -->
+<h1>一、项目概述</h1>
+
+<h2>1.1 真实需求来源</h2>
+
+<p>
+本作品的需求直接来自作者本人的日常运维工作，而非虚构场景：
+</p>
+
+<ul>
+  <li>负责 <b>23 间机房教室、约 1840 台计算机设备</b> 的日常维护</li>
+  <li>管理一支 <b>50 人的学生运维团队</b></li>
+  <li>每周值班 3–4 次，组织每周两次机房大扫除</li>
+</ul>
+
+<h2>1.2 要解决的问题</h2>
+
+<p>在高频运维工作中，暴露出三个具体痛点：</p>
+
+<table>
+  <tr>
+    <th style="width:26%">痛点</th>
+    <th>具体表现</th>
+  </tr>
+  <tr>
+    <td><b>高频故障重复出现</b></td>
+    <td>无法开机、网络中断、外设失灵等问题反复发生，每次都从头排查</td>
+  </tr>
+  <tr>
+    <td><b>排查依赖个人经验</b></td>
+    <td>新人上手慢，同一个故障不同人处理方式不一致，处理标准不统一</td>
+  </tr>
+  <tr>
+    <td><b>经验无法沉淀</b></td>
+    <td>老管理员毕业后经验随之流失，后来者仍需重新摸索</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <b>为什么这些痛点值得解决：</b>
+  机房运维的核心矛盾是「故障种类有限但处理经验分散在人脑里」。
+  1840 台设备的故障模式其实高度重复，若能沉淀成可检索的工具，
+  就能把「依赖个人」变成「依赖系统」。
+</div>
+
+<h2>1.3 作品定位</h2>
+
+<p>
+本作品把机房运维经验沉淀成<b>可检索、可复用的诊断工具</b>，降低对个人经验的依赖。
+与常见的「设备管理系统」不同，本作品的切入点是<b>故障排查过程本身</b>：
+</p>
+
+<table>
+  <tr><th style="width:30%">维度</th><th>本作品的做法</th></tr>
+  <tr>
+    <td>输入方式</td>
+    <td>自然语言描述故障，不需要记忆关键词或分类编号</td>
+  </tr>
+  <tr>
+    <td>交互形式</td>
+    <td>对话式逐层追问，一次只问一个问题，模拟老师傅带徒弟的过程</td>
+  </tr>
+  <tr>
+    <td>知识来源</td>
+    <td>本校机房真实案例库 + AI 通用知识，并通过检索增强（RAG）注入</td>
+  </tr>
+  <tr>
+    <td>闭环设计</td>
+    <td>诊断结论自动写入报修台账，形成「排查 → 记录 → 统计 → 报表」闭环</td>
+  </tr>
+</table>
+
+<!-- ==================== 二、系统架构 ==================== -->
+<h1>二、系统架构</h1>
+
+<h2>2.1 整体结构</h2>
+
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│                      浏览器（原生前端）                    │
+│   诊断对话 · 报修台账 · 数据看板 · 教室管理 · 日常报备      │
+└────────────────────────┬────────────────────────────────┘
+                         │  HTTP / SSE 流式
+┌────────────────────────┴────────────────────────────────┐
+│                   Flask 后端（app.py）                    │
+│                    23 个 REST 接口                        │
+└──┬──────────┬──────────┬──────────┬──────────┬──────────┘
+   │          │          │          │          │
+┌──┴───┐  ┌──┴───┐  ┌───┴───┐  ┌───┴───┐  ┌───┴────┐
+│ 对话 │  │ 知识 │  │ 报修  │  │ 教室  │  │ 报表   │
+│ 诊断 │  │ 库   │  │ 台账  │  │ 台账  │  │ 导出   │
+│      │  │      │  │       │  │       │  │        │
+│ai_di │  │know  │  │repair │  │class  │  │excel   │
+│agnos │  │ledge │  │_log   │  │room   │  │_export │
+└──┬───┘  └──┬───┘  └───┬───┘  └───┬───┘  └───┬────┘
+   │         │          │          │          │
+   └─────────┴──────────┴──────────┴──────────┘
+                         │
+              ┌──────────┴──────────┐
+              │  filelock.py 统一加锁 │
+              └──────────┬──────────┘
+                         │
+              ┌──────────┴──────────┐
+              │   data/  文件存储     │
+              └─────────────────────┘</code></pre>
+
+<h2>2.2 模块职责</h2>
+
+<table>
+  <tr>
+    <th style="width:22%">模块</th>
+    <th style="width:12%">行数</th>
+    <th>职责</th>
+  </tr>
+  <tr>
+    <td><code>ai_diagnosis.py</code></td>
+    <td>305</td>
+    <td>对话式诊断；维护会话历史；解析 AI 标记；数量解析</td>
+  </tr>
+  <tr>
+    <td><code>knowledge.py</code></td>
+    <td>494</td>
+    <td>知识库检索（轻量 RAG）；分类推断；自动沉淀</td>
+  </tr>
+  <tr>
+    <td><code>repair_log.py</code></td>
+    <td>430</td>
+    <td>报修台账 CRUD；状态机；数量统计；CSV 迁移</td>
+  </tr>
+  <tr>
+    <td><code>classroom.py</code></td>
+    <td>300</td>
+    <td>教学楼 / 教室两级台账；三态统计</td>
+  </tr>
+  <tr>
+    <td><code>excel_export.py</code></td>
+    <td>420</td>
+    <td>面向领导的一页纸报表（单表汇总）</td>
+  </tr>
+  <tr>
+    <td><code>daily_task.py</code></td>
+    <td>216</td>
+    <td>日常报备待办清单</td>
+  </tr>
+  <tr>
+    <td><code>filelock.py</code></td>
+    <td>86</td>
+    <td>跨平台文件锁（fcntl / msvcrt）</td>
+  </tr>
+  <tr>
+    <td><code>app.py</code></td>
+    <td>780</td>
+    <td>Flask 后端；23 个接口；SSE 流式输出</td>
+  </tr>
+</table>
+
+<p>
+<b>分层原则：</b>业务逻辑全部放在独立模块中，<code>app.py</code> 只做
+「接收请求 → 调用模块 → 返回 JSON」的转发，不包含业务规则。
+这样同一套逻辑既能被 Web 界面调用，也能被命令行 <code>main.py</code> 调用。
+</p>
+
+<h2>2.3 数据存储设计</h2>
+
+<p>
+本项目<b>不使用数据库</b>，全部采用文件存储。这是刻意的选择：
+</p>
+
+<div class="callout">
+  <b>为什么不用数据库：</b>
+  本工具部署在机房现场的单机上，数据量极小（几十条记录 / 几个文件），
+  引入 SQLite 或 MySQL 会增加部署复杂度，却带不来实际收益。
+  更重要的是——<b>纯文件便于人工查看与直接编辑</b>，
+  故障现场往往需要管理员直接用记事本打开台账确认，
+  这是数据库做不到的。
+</div>
+
+<table>
+  <tr>
+    <th style="width:32%">文件</th>
+    <th style="width:14%">是否提交</th>
+    <th>用途</th>
+  </tr>
+  <tr>
+    <td><code>data/fault_cases.json</code></td>
+    <td>✅ 提交</td>
+    <td>手工整理的知识库（23 条案例）</td>
+  </tr>
+  <tr>
+    <td><code>data/fault_cases_auto.json</code></td>
+    <td>❌ 忽略</td>
+    <td>程序自动沉淀的案例（运行时数据）</td>
+  </tr>
+  <tr>
+    <td><code>data/repair_records.csv</code></td>
+    <td>❌ 忽略</td>
+    <td>报修台账（含真实教室号，不公开）</td>
+  </tr>
+  <tr>
+    <td><code>data/classrooms.json</code></td>
+    <td>❌ 忽略</td>
+    <td>教室与设备台账</td>
+  </tr>
+  <tr>
+    <td><code>data/daily_tasks.json</code></td>
+    <td>❌ 忽略</td>
+    <td>日常报备待办</td>
+  </tr>
+</table>
+
+<div class="callout good">
+  <b>知识库分两个文件的设计理由：</b>
+  手工整理的经验应当随仓库传递、可评审、可回滚；
+  而程序自动生成的数据属于运行时产物，不应污染提交记录。
+  两者分离后，程序只写 <code>_auto</code> 文件，永不覆盖手工知识库。
+</div>
+
+<!-- ==================== 三、核心技术实现 ==================== -->
+<h1>三、核心技术实现</h1>
+
+<h2>3.1 对话式逐层排查</h2>
+
+<p>
+传统做法是用户输入故障后，一次性输出「5 个可能原因 + 5 个大步骤」，
+内容长达上千字。在故障现场，管理员根本看不完，也无法根据实际情况推进。
+</p>
+
+<p>本作品改为<b>对话式逐层追问</b>：</p>
+
+<pre><code>[用户] 501 教室电脑打不开
+[AI]   按开机键后，机箱指示灯亮吗？风扇转吗？
+
+[用户] 按电源没反应，灯不亮
+[AI]   检查一下机箱后面的电源线两头有没有插紧，插紧后再按开机键，有反应吗？
+
+[用户] 换了电源线还是不行
+[AI]   看一下机箱背面电源上的开关是不是被关到"O"那边了，拨到"I"再开机试试？
+
+[用户] 开关是开的，灯也不亮
+[AI]   把电脑插到旁边正常的机位上试试，能开机吗？
+
+[用户] 换了机位就能开
+[AI]   这间教室有几台是这个情况？
+
+[用户] 有 3 台
+[AI]   【诊断结束】
+       原因：这几个机位的插座没电（供电故障），主机本身没问题。
+       数量：3 台
+       处理：先确认是不是这几路插座对应的空气开关跳闸了……
+       【需要报修】</code></pre>
+
+<p><b>关键实现</b>——维护完整对话历史，让 AI 记住排查过程：</p>
+
+<pre><code>class DiagnosisSession:
+    def __init__(self):
+        self.history = []          # 对话历史
+        self.classroom = ''        # 教室号
+        self.quantity = 1          # 损坏数量
+        self.need_repair = False   # 是否需报修
+        self.self_fix = False      # 是否可自修
+
+    def send(self, user_input):
+        self.history.append({"role": "user", "content": user_input})
+        response = self.client.chat.completions.create(
+            model=MODEL,
+            messages=self.history,      # 带上完整历史
+            temperature=0.3,
+            max_tokens=300,             # 限制长度，强制精简
+        )
+        reply = response.choices[0].message.content.strip()
+        self.history.append({"role": "assistant", "content": reply})
+        return clean_markers(reply), self.finished, self.need_repair</code></pre>
+
+<h2>3.2 轻量 RAG 知识库</h2>
+
+<p>
+<b>早期做法：</b>把 <code>fault_cases.json</code> 全部案例塞进 system 消息。
+案例一多就浪费 token，无关案例还会干扰判断。
+</p>
+
+<p>
+<b>现在的做法：</b>先用本地关键词加权检索找出最相关的 Top-3 案例，只注入这几条。
+</p>
+
+<h3>检索算法</h3>
+
+<table>
+  <tr><th style="width:26%">权重</th><th>命中位置</th></tr>
+  <tr><td>×3.0</td><td>故障分类一致</td></tr>
+  <tr><td>×2.0</td><td>现象描述命中</td></tr>
+  <tr><td>×0.5</td><td>可能原因命中（权重压低，见下）</td></tr>
+  <tr><td>额外加成</td><td>命中关键特征词表（如"蓝屏""断网"给 3.0）</td></tr>
+</table>
+
+<div class="callout warn">
+  <b>为什么「原因」权重只有 0.5：</b>
+  原因是排查要点，用词宽泛（如"交换机断电或故障"里的"断电"），
+  容易与无关领域偶然重合。曾经出现过查「电脑自动关机」时，
+  因共享「断电」一词而误命中网络类案例的假阳性。
+  压低权重并增加相关性判断后解决。
+</div>
+
+<h3>同义词归一</h3>
+
+<p>
+用户说「整间教室断网」，知识库里写的是「无法上网」——
+两边指的是同一件事，但字面完全没有重合，检索得分是 0。
+</p>
+
+<pre><code>SYNONYMS = {
+    '上网': ['断网', '上不了网', '无法上网', '不能上网', '连不上网'],
+    '开机': ['开不了机', '打不开', '无法开机', '点不亮'],
+    '黑屏': ['无显示', '没显示', '屏幕黑', '不显示', '没画面'],
+    # ... 共 17 组
+}
+
+# 反向索引：说法 → 标准词（模块加载时构建一次）
+_SYNONYM_LOOKUP = {}
+for _std, _variants in SYNONYMS.items():
+    _SYNONYM_LOOKUP[_std] = _std
+    for _v in _variants:
+        _SYNONYM_LOOKUP[_v] = _std</code></pre>
+
+<p>
+关键在于<b>必须在切分之前扫描原文</b>：用户说「教室上不了网」，
+按标点切分只会得到 <code>教室上</code>、<code>室上不</code> 这类碎片，
+<code>上不了网</code> 根本不会被提取出来。
+</p>
+
+<h3>粒度一致性</h3>
+
+<p>
+另一个被实际使用暴露的问题：查询「空调漏水」（4 字短句）整段保留，
+而案例症状是长句、被切成 3-gram（<code>空调漏</code>、<code>调漏水</code>）——
+两边粒度不一致，交集为空，导致<b>刚沉淀的新案例用关键词反而搜不到</b>。
+</p>
+
+<p>修复：长短句统一产出 3-gram，匹配时放宽为互为子串即算命中。</p>
+
+<h2>3.3 知识库自动沉淀</h2>
+
+<p>
+诊断结束后，若结论为「自己修」（已报修的不沉淀，因为结论尚未验证），
+系统把现象与结论提取成结构化案例写回知识库，实现<b>越用越聪明</b>。
+</p>
+
+<pre><code>def save_case(symptom, conclusion, excluded=None, classroom=''):
+    # 1) 去重：现象高度相似的不重复添加
+    existing = search(symptom, top_n=1, min_score=8.0)
+    if existing:
+        return False, f'已有高度相似案例 {existing[0].get("id")}'
+
+    # 2) 从结论抽取「原因」和「处理」
+    reason = re.search(r'原因[:：]\s*(.+)', conclusion)
+    action = re.search(r'处理[:：]\s*(.+)', conclusion)
+
+    # 3) 推断分类、生成编号（在合并后的全量案例中避让）
+    category = _infer_category(symptom + ' ' + conclusion)
+    new_id = f'{prefix}-{max(nums) + 1:03d}'
+
+    # 4) 只追加到自动沉淀文件，不碰手工文件
+    _append_auto_case(new_case)
+    return True, new_id</code></pre>
+
+<h3>分类推断的规则设计</h3>
+
+<p>
+分类规则按「越具体越靠前」排列，第一个命中的生效。
+这里踩过一个坑：早期版本把「声音」作为音频类的关键词，
+导致<b>「风扇声音特别大」被判成音频故障</b>（散热问题被当成音响问题）。
+</p>
+
+<pre><code>_CATEGORY_RULES = [
+    # 外设类先于音频：'音响''耳机'本身就带"响/机"
+    (['鼠标', '键盘', 'U盘', 'usb', '摄像头'], '外设故障'),
+    (['投影', '投影仪'], '投影故障'),
+    (['打印机', '卡纸'], '打印故障'),
+    (['上网', '断网', '网络', '网线', '交换机'], '网络故障'),
+    (['蓝屏', '死机', '卡顿', '系统', '重装', '病毒'], '系统故障'),
+    (['显示', '黑屏', '花屏', '无信号', '显示器'], '显示故障'),
+    # 开机类：补齐 关机/断电/重启/硬件部件
+    (['开机', '打不开', '不通电', '关机', '断电', '重启',
+      '电源', '主板', '内存', '硬盘', '显卡', '风扇', '散热'], '开机故障'),
+    # 音频类放最后，且用具体词
+    (['音响', '音箱', '耳机', '话筒', '麦克风', '没声音', '杂音'], '音频故障'),
+]</code></pre>
+
+<h2>3.4 设备状态三态模型</h2>
+
+<p>
+设备的可用状态设计为三种（面向运维）与两种（面向领导报表）两套口径：
+</p>
+
+<table>
+  <tr>
+    <th style="width:20%">系统状态</th>
+    <th style="width:30%">含义</th>
+    <th>报表归类</th>
+  </tr>
+  <tr>
+    <td><span style="color:#dc2626">未报修</span></td>
+    <td>硬件故障，需要报修</td>
+    <td>损坏</td>
+  </tr>
+  <tr>
+    <td><span style="color:#ca8a04">待自修</span></td>
+    <td>非硬件问题，可自行修复</td>
+    <td>损坏</td>
+  </tr>
+  <tr>
+    <td><span style="color:#ea580c">已报修</span></td>
+    <td>已联系维修，等待处理</td>
+    <td>损坏</td>
+  </tr>
+  <tr>
+    <td><span style="color:#16a34a">已解决</span></td>
+    <td>已完结</td>
+    <td>正常</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <b>为什么报表要合并成两种：</b>
+  这份报表是给领导看的，领导不关心修没修、谁去修，
+  只关心「现在有多少台能用」。因此报表口径为：
+  <b>正常 + 损坏 = 设备总数</b>，账目能直接对上。
+</div>
+
+<h3>「不能用台数」的统计口径</h3>
+
+<p>
+一条报修记录可以代表多台设备（如「第三排 5 台都开不了机」），
+因此统计台数时按<b>数量字段累加</b>，而不是数记录条数。
+</p>
+
+<pre><code>def count_machines(records, statuses=None):
+    """统计一批记录代表的机器台数（累加数量字段）"""
+    total = 0
+    for r in records:
+        if statuses is not None and r.get('状态') not in statuses:
+            continue
+        total += get_quantity(r)
+    return total</code></pre>
+
+<h2>3.5 并发写入保护</h2>
+
+<p>
+Flask 默认多线程，多个请求可能同时「读-改-写」同一个数据文件。
+没有锁时，后写的会覆盖先写的，导致<b>数据丢失</b>。
+</p>
+
+<pre><code>@contextlib.contextmanager
+def file_lock(target_path):
+    """对目标文件加排他锁（锁文件为 target_path + '.lock'）"""
+    lock_path = target_path + '.lock'
+    fh = open(lock_path, 'w')
+    locked = False
+    try:
+        try:
+            import fcntl                      # Linux / macOS
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            locked = True
+        except ImportError:
+            import msvcrt                     # Windows
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            locked = True
+        yield
+    finally:
+        if locked:
+            # 释放锁
+            ...</code></pre>
+
+<p>
+关键点：<b>必须加锁之后再读取</b>，否则读到的仍是过期内容。
+</p>
+
+<pre><code># 正确做法
+with file_lock(AUTO_FILE):
+    data = _load_auto()          # 先加锁，再读取
+    data['cases'].append(case)
+    _write_auto(data)</code></pre>
+
+<p>
+验证方式：10 个线程并发写入，实测 <b>10 条全部落盘</b>，无一丢失。
+这条测试已固化进测试套件（<code>tests/test_concurrency.py</code>）。
+</p>
+
+<!-- ==================== 四、意图控制策略 ==================== -->
+<h1>四、意图控制策略</h1>
+
+<h2>4.1 系统提示词设计</h2>
+
+<p>
+系统提示词是本项目最核心的设计。它的目标不是「让 AI 更聪明」，
+而是<b>约束 AI 的行为边界</b>——把通用大模型改造成一个守规矩的运维助手。
+</p>
+
+<pre><code>你是一名高校机房的运维工程师，正在通过对话帮学生管理员排查设备故障。
+
+## 核心规则（必须严格遵守）
+
+1. 每次回复只做一件事：要么问一个问题，要么给出结论。
+   绝不一次列出多个问题或多个步骤。
+
+2. 教室号已知时绝不再问。只有完全不知道教室时才问。
+
+3. 第一步问清具体表现。如果用户描述很模糊（如"电脑打不开"），
+   先问清楚具体现象，不要跳到排查。
+
+4. 提问要多样化，禁止套模板。
+   不要每次都问"指示灯亮吗？风扇转吗？"
+   根据故障类型选择不同的切入角度。
+
+5. 根据回答推进：用户说"不行"就排除这个原因，进入下一个全新的可能。
+   绝不重复问同一个问题。
+
+6. 用户答非所问时：先简短确认他的信息，再把原来的问题换个更简单的说法。
+
+7. 确定原因后，先问损坏数量。
+   拿到数量后再输出结论。
+
+8. 数量要记住，不要写错。绝不能写 0 台。
+
+## 严禁
+- 严禁一次列出多个排查步骤
+- 严禁输出大段解释和原理
+- 严禁重复已经排除的检查项
+- 严禁使用「首先、其次、最后」这种结构化列点</code></pre>
+
+<h2>4.2 如何约束 AI 的输出</h2>
+
+<p>除了提示词，还有三道工程约束：</p>
+
+<table>
+  <tr>
+    <th style="width:24%">手段</th>
+    <th>作用</th>
+  </tr>
+  <tr>
+    <td><code>max_tokens=300</code></td>
+    <td>物理限制回复长度，强制精简。写得长会被直接截断</td>
+  </tr>
+  <tr>
+    <td><code>temperature=0.3</code></td>
+    <td>降低随机性，让排查步骤稳定、专业，不出现发散内容</td>
+  </tr>
+  <tr>
+    <td>结构化标记</td>
+    <td>用 <code>【诊断结束】</code><code>【需要报修】</code><code>【可自修】</code>
+        三个标记，让程序能可靠地解析 AI 意图，而不必猜自然语言</td>
+  </tr>
+</table>
+
+<h3>标记解析与状态映射</h3>
+
+<pre><code>def apply_markers(session, reply):
+    """根据 AI 回复里的标记，更新会话状态"""
+    if REPAIR_MARKER in reply:
+        session.need_repair = True
+    if SELF_FIX_MARKER in reply:
+        session.self_fix = True
+    if DONE_MARKER in reply:
+        session.finished = True
+        session.quantity = parse_quantity(reply)   # 从结论解析数量
+    return reply
+
+
+def parse_quantity(text):
+    """容错解析：支持 "3 台" / "三台" / "十五台" """
+    m = re.search(r'数量[:：]\s*(\d+)', text)
+    if m:
+        return max(int(m.group(1)), 1)
+    # 中文数字、兜底匹配……
+    return 1      # 解析不出时保守记为 1，绝不能是 0</code></pre>
+
+<h2>4.3 提示词的迭代过程</h2>
+
+<p>提示词不是一次写对的，而是<b>根据实际对话暴露的问题逐步补充规则</b>：</p>
+
+<table>
+  <tr>
+    <th style="width:30%">发现的问题</th>
+    <th>补充的规则</th>
+  </tr>
+  <tr>
+    <td>用户说「电脑打不开」（模糊描述）时，AI 直接跳到排查电源开关</td>
+    <td>新增第 3 条：<b>第一步永远是问清具体表现</b></td>
+  </tr>
+  <tr>
+    <td>用户答非所问时，AI 把上一个问题换个说法又问一遍</td>
+    <td>新增第 6 条：<b>先确认信息，再用更简单的方式重问</b></td>
+  </tr>
+  <tr>
+    <td>AI 每次都问「指示灯亮吗？风扇转吗？」，像套模板</td>
+    <td>新增第 4 条：<b>提问要多样化，按故障类型选择切入角度</b></td>
+  </tr>
+  <tr>
+    <td>用户已说明数量，AI 结论里仍写「数量：1 台」</td>
+    <td>新增第 8 条：<b>数量要记住，不能写错，绝不能是 0</b></td>
+  </tr>
+</table>
+
+<div class="callout good">
+  <b>经验：提示词需要根据实际测试结果迭代。</b>
+  第一版写出来的提示词往往不完善，必须通过真实对话发现问题、
+  再针对性补充规则。这条迭代记录已保存在
+  <code>docs/开发过程记录.md</code> 中。
+</div>
+
+<!-- ==================== 五、工程质量保障 ==================== -->
+<h1>五、工程质量保障</h1>
+
+<h2>5.1 自动化测试</h2>
+
+<p>
+项目包含 <b>150 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
+</p>
+
+<table>
+  <tr>
+    <th style="width:34%">测试文件</th>
+    <th style="width:12%">用例数</th>
+    <th>覆盖内容</th>
+  </tr>
+  <tr>
+    <td><code>test_knowledge.py</code></td>
+    <td>34</td>
+    <td>检索质量、假阳性防护、自动沉淀、手工/自动数据隔离</td>
+  </tr>
+  <tr>
+    <td><code>test_repair_log.py</code></td>
+    <td>13</td>
+    <td>台账 CRUD、状态排序、旧 CSV 表头迁移</td>
+  </tr>
+  <tr>
+    <td><code>test_classroom_daily.py</code></td>
+    <td>30</td>
+    <td>教室台账校验、三态统计、待办排序与逾期判定</td>
+  </tr>
+  <tr>
+    <td><code>test_quantity_and_status.py</code></td>
+    <td>37</td>
+    <td>数量解析、状态判定、批量登记、迁移不丢数据</td>
+  </tr>
+  <tr>
+    <td><code>test_concurrency.py</code></td>
+    <td>9</td>
+    <td>并发写入不丢数据、文件锁正确性</td>
+  </tr>
+  <tr>
+    <td><code>test_excel_export.py</code></td>
+    <td>32</td>
+    <td>报表口径、纵向合并、原因精简、合计行</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <b>测试设计原则：只测不变的契约，不测易变的实现。</b>
+  例如测试「正常 + 损坏 = 设备总数」这条业务规则，
+  而不是测试某个函数的具体实现细节——前者改代码时仍成立，
+  后者稍作重构就会误报。
+</div>
+
+<h2>5.2 持续集成</h2>
+
+<pre><code>name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Windows 也要测：文件锁在 Windows 走 msvcrt、Linux 走 fcntl，
+        # 两条分支都必须验证
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests -v</code></pre>
+
+<p>
+每次推送到 main 或提交 PR，自动在 <b>4 种环境组合</b>上跑一遍测试。
+</p>
+
+<h2>5.3 典型缺陷与修复</h2>
+
+<p>以下是开发过程中真实发现并修复的四个典型缺陷，均有测试保护：</p>
+
+<h3>缺陷 1：异常被静默吞掉，知识库悄悄失效</h3>
+
+<p>
+<b>现象：</b>没有任何报错，程序运行正常，但知识库<b>从未被成功加载</b>。
+</p>
+
+<pre><code># 有问题的代码
+try:
+    with open(data_file, 'r', encoding='utf-8') as f:
+        cases = json.load(f)['cases']
+except Exception:
+    return ""          # ← 所有异常被吞掉
+
+# 调用方
+if ctx:                # 空字符串判定为假 → 静默跳过知识库
+    ...</code></pre>
+
+<p>
+<b>根因：</b><code>fault_cases.json</code> 有两处逗号缺失导致 JSON 解析失败，
+但异常被 <code>except</code> 吞掉并返回空字符串，
+程序照常运行，表面上完全看不出问题。
+</p>
+
+<p>
+<b>修复：</b>补全逗号；并加上实际验证——调用函数确认返回值非空。
+</p>
+
+<div class="callout warn">
+  <b>经验：<code>except</code> 后返回空值是最危险的失败模式。</b>
+  它把「配置坏了」伪装成「没有配置」。崩溃会立刻暴露问题，
+  而静默失败只会让功能「看起来能用、实际少了一块」。
+</div>
+
+<h3>缺陷 2：检索同义词缺口</h3>
+
+<p>
+<b>现象：</b>用户搜「整间教室断网」→ 无匹配。但知识库里明明有网络案例。
+</p>
+
+<p>
+<b>根因：</b><code>断网</code> 是关键词，但只对「用户说断网」加分；
+案例正文写的是「无法上网」——这个加分永远加不上，
+同义表达之间没有打通。
+</p>
+
+<p><b>修复：</b>新增同义词归一表，并在切分前扫描原文。</p>
+
+<h3>缺陷 3：并发写入丢数据</h3>
+
+<p>
+<b>现象：</b>两个诊断同时结束时，台账只留下一条记录。
+</p>
+
+<p>
+<b>根因：</b>「读-改-写」无锁，后写的覆盖先写的。
+</p>
+
+<p>
+<b>修复：</b>引入跨平台文件锁，并确保<b>加锁之后再读取</b>。
+</p>
+
+<h3>缺陷 4：图表颜色与主题冲突</h3>
+
+<p>
+<b>现象：</b>下拉选项在深色主题下是白底浅字，几乎无法阅读。
+</p>
+
+<p>
+<b>根因：</b>只给 <code>&lt;select&gt;</code> 控件设了深色样式，
+没给下拉出来的 <code>&lt;option&gt;</code> 设。
+</p>
+
+<p><b>修复：</b>新增全局 <code>select option</code> 规则统一处理。</p>
+
+<!-- ==================== 六、可复现性论证 ==================== -->
+<h1>六、可复现性论证</h1>
+
+<h2>6.1 环境与依赖</h2>
+
+<table>
+  <tr><th style="width:26%">项目</th><th>要求</th></tr>
+  <tr><td>操作系统</td><td>Windows / Linux / macOS</td></tr>
+  <tr><td>Python</td><td>3.10 或更高（开发环境 3.15.0）</td></tr>
+  <tr><td>依赖库</td><td>仅 3 个：<code>openai</code> <code>flask</code> <code>openpyxl</code></td></tr>
+  <tr><td>数据库</td><td>无需数据库</td></tr>
+  <tr><td>前端构建</td><td>无需构建工具（原生 HTML/CSS/JS）</td></tr>
+  <tr><td>API Key</td><td>DeepSeek API Key（从环境变量读取）</td></tr>
+</table>
+
+<h2>6.2 复现步骤</h2>
+
+<pre><code># 1) 克隆仓库
+git clone git@github.com:liyishuo1/dsh-fault-diagnosis.git
+cd dsh-fault-diagnosis
+
+# 2) 安装依赖（仅 3 个库）
+pip install -r requirements.txt
+
+# 3) 配置 API Key（不写入代码，从环境变量读取）
+#    Windows PowerShell：
+[Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的key", "User")
+#    设置后需要新开一个终端
+
+# 4) 启动
+cd src
+python app.py
+# 浏览器访问 http://127.0.0.1:5000
+
+# 5) 运行测试（可选，150 个用例）
+pip install -r requirements-dev.txt
+python -m pytest tests -v</code></pre>
+
+<div class="callout good">
+  <b>复现时间：约 5 分钟。</b>
+  无需数据库、无需前端构建、无需 Docker。
+  这也是刻意保持「零额外依赖」的原因——降低复现门槛本身就是可复现性的一部分。
+</div>
+
+<h2>6.3 演进链路</h2>
+
+<p>
+代码仓库保留了完整的细粒度提交历史，共 <b>45 个提交</b>，
+首次提交仅包含 <code>.gitignore</code>（不是一次性 initial commit）。
+每次提交对应一个功能模块或一次修复：
+</p>
+
+<table>
+  <tr><th style="width:14%">阶段</th><th style="width:16%">版本</th><th>关键提交</th></tr>
+  <tr>
+    <td rowspan="2">起步</td>
+    <td>v0.1.0</td>
+    <td>初始化项目结构 → 添加故障知识库 → 实现本地查询</td>
+  </tr>
+  <tr>
+    <td>v0.2.0</td>
+    <td>决策树逐步诊断（<b>验证后暂缓</b>，维护成本过高）</td>
+  </tr>
+  <tr>
+    <td rowspan="3">AI 接入</td>
+    <td>v0.3.0</td>
+    <td>接入大模型 API → 主程序改为 AI 优先诊断</td>
+  </tr>
+  <tr>
+    <td>v0.4.0</td>
+    <td>改为对话式逐层排查</td>
+  </tr>
+  <tr>
+    <td>v0.5.0</td>
+    <td>Web 界面 → 流式输出 → 数据看板</td>
+  </tr>
+  <tr>
+    <td rowspan="3">业务闭环</td>
+    <td>v0.6.0</td>
+    <td>教室设备台账 → 报修闭环 → 日常报备</td>
+  </tr>
+  <tr>
+    <td>v0.7.0</td>
+    <td>知识库检索增强（轻量 RAG）→ 自动沉淀</td>
+  </tr>
+  <tr>
+    <td>v0.8.0</td>
+    <td>数据分离 → 检索粒度修复 → 并发保护</td>
+  </tr>
+  <tr>
+    <td rowspan="2">工程化</td>
+    <td>v0.9.0</td>
+    <td>150 个测试 → CI → 统一文件锁 → 会话回收</td>
+  </tr>
+  <tr>
+    <td>v0.10.0</td>
+    <td>Excel 报表 → 三态模型 → 界面重构</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <b>关于「决策树方案暂缓」：</b>
+  这一版是<b>做出来、验证过、再决定放弃</b>的，而非凭空判断。
+  实测发现每增加一种故障都要手工编写大量节点，且分支写死、
+  无法覆盖真实故障的多样性。代码保留在仓库中备查。
+  这条记录本身就是「方案不是一次做对的」的证明。
+</div>
+
+<!-- ==================== 七、AI 协作过程 ==================== -->
+<h1>七、AI 协作过程</h1>
+
+<h2>7.1 协作方式</h2>
+
+<p>
+本项目全程使用 AI 辅助开发。协作方式不是「让 AI 写完整代码」，
+而是<b>人负责判断与验证，AI 负责实现与建议</b>：
+</p>
+
+<table>
+  <tr><th style="width:26%">环节</th><th>人的职责</th><th>AI 的职责</th></tr>
+  <tr>
+    <td>需求分析</td>
+    <td>提出真实痛点，定义验收标准</td>
+    <td>给出数据结构与实现方案</td>
+  </tr>
+  <tr>
+    <td>编码实现</td>
+    <td>审查代码逻辑，要求逐段解释</td>
+    <td>生成代码，说明设计取舍</td>
+  </tr>
+  <tr>
+    <td>问题排查</td>
+    <td><b>提供完整报错信息与复现步骤</b></td>
+    <td>定位根因，给出修复方案</td>
+  </tr>
+  <tr>
+    <td>效果验证</td>
+    <td><b>实际运行验证，发现与预期不符之处</b></td>
+    <td>根据反馈调整</td>
+  </tr>
+</table>
+
+<h2>7.2 典型协作案例</h2>
+
+<h3>案例：从「6 张表」到「1 张表」的需求纠偏</h3>
+
+<p>
+<b>第一轮 Prompt（我）：</b>
+</p>
+
+<pre><code>设计导出功能：将报修记录导出成 excel。
+表格顺序按照未报修-已报修-已解决处理，按照教学楼-教室进行分类。
+要求体现教室历史故障原因和次数，并且反应现状：
+目前教室有多少台能用，多少台不能用，不能用的一一对应好损坏时间和原因</code></pre>
+
+<p>
+<b>AI 实现：</b>生成了 6 个工作表（总览、故障总表、教室现状、损坏明细、故障统计、未录入台账）。
+
+<b>第二轮反馈（我）：</b>
+</p>
+
+<pre><code>导出的格式完全不行，你听我的要求，说完全部需求后再去做</code></pre>
+
+<p>
+<b>第三轮（我给出完整需求）：</b>
+</p>
+
+<pre><code>用途需要领导看，要直观看出每间教室的情况。
+你将工作表说明全部删除，表的最左侧是教学楼，
+一次向下排，教学楼的右边接着对应的教室。
+表头最上面是教学楼-教室-总设备数量-正常运行设备数量-损坏数量及其原因</code></pre>
+
+<p>
+<b>进一步澄清（我）：</b>
+</p>
+
+<pre><code>因为是领导看，领导不管修没修，他只管现在能运行多少，
+所以待修理和未报修都算作损坏，已解决不用单拎出来，
+放入正常运作数量里。只留这一张。</code></pre>
+
+<p>
+<b>最终结果：</b>单张汇总表，一间教室一行，
+「正常 + 损坏 = 设备总数」，账目可直接对上。
+</p>
+
+<div class="callout good">
+  <b>这个案例说明什么：</b>
+  AI 的实现能力很强，但<b>它不掌握业务的真实约束</b>——
+  它不知道报表是给谁看的、领导关心什么。
+  第一版 6 张表在技术上没有错误，但解决的不是真问题。
+  把「用途、受众、判断标准」讲清楚，比反复描述格式更有效。
+</div>
+
+<h3>案例：AI 主动发现的隐藏缺陷</h3>
+
+<p>
+在实现「自动沉淀数据分离」时，AI 在回归测试中发现了一个更严重的问题：
+</p>
+
+<pre><code>新沉淀一条"机房空调漏水导致地板大面积湿滑"
+然后搜"空调漏水"  →  无匹配 ❌</code></pre>
+
+<p>
+刚存进去的案例，用关键词居然搜不到——等于沉淀了也没用。
+根因是切分粒度不一致（查询是 4 字整段，案例被切成 3-gram）。
+</p>
+
+<p>
+同一次测试还暴露出 AI 先前加的一个「降噪过滤器」是错的：
+它只保留「能对应到已知词表」的词，
+导致<b>词表外的新领域（如"空调漏水"）永远无法沉淀</b>。
+该过滤器已被移除，改在打分环节解决假阳性。
+</p>
+
+<div class="callout warn">
+  <b>AI 也会犯错，而且可能错得很隐蔽。</b>
+  那个过滤器初衷是好的（挡掉跨词碎片噪音），
+  但实现方式等于给知识库设了一道隐形准入限制。
+  <b>凡是「让系统只能认识预先知道的东西」的设计，
+  都会在遇到真实世界的新情况时失效。</b>
+  这个教训只有靠真实测试才能发现，靠阅读代码是看不出来的。
+</div>
+
+<h2>7.3 完整对话记录</h2>
+
+<p>
+项目保留了与 AI 协作的<b>完整原始对话记录</b>（未经改写）：
+</p>
+
+<table>
+  <tr><th style="width:40%">文件</th><th>内容</th></tr>
+  <tr>
+    <td><code>docs/AI对话记录-完整版.md</code></td>
+    <td>全部 11 轮对话，含每轮的 Prompt、工具调用与 AI 回复</td>
+  </tr>
+  <tr>
+    <td><code>docs/AI对话记录-关键片段.md</code></td>
+    <td>精选 6 段「提问 → 方案 → 踩坑 → 修复」的完整过程</td>
+  </tr>
+</table>
+
+<p>
+这两份文件由 <code>tools/export_conversation.py</code> 从 AI 工具的会话日志
+<b>自动导出</b>，可保证过程真实可追溯，不存在事后编撰的可能。
+</p>
+
+<div class="callout">
+  <b>为什么这份材料重要：</b>
+  评审要求「过程可复现」，而最容易造假的恰恰是「开发过程叙述」。
+  从工具日志直接导出，是唯一能自证真实的方式。
+</div>
+
+<div style="margin-top:44px;padding-top:18px;border-top:1px solid #e2e8f0;
+            text-align:center;color:#a0aec0;font-size:9.5pt">
+  机房故障智能诊断助手 · 技术文档 · v0.10.0<br>
+  李一硕 · 2026 年 10 月
+</div>
+
+</body>
+</html>
