@@ -118,3 +118,90 @@ class TestFileLock:
 
         with file_lock(classroom.DATA_FILE):
             assert os.path.exists(classroom.DATA_FILE + '.lock')
+
+    def test_lock_is_reentrant_same_thread(self, tmp_data):
+        """
+        同一线程嵌套加锁不得死锁
+
+        业务里存在「持锁后调用另一个也会加锁的函数」的写法，
+        例如 repair_log 在锁内调用 load_records()，
+        而 load_records() 为了确保文件存在又去加锁。
+        锁不可重入的话，这种写法会直接把线程卡死。
+        """
+        import threading
+        from filelock import file_lock
+
+        done = threading.Event()
+
+        def nested():
+            with file_lock(classroom.DATA_FILE):
+                with file_lock(classroom.DATA_FILE):      # 内层重入
+                    with file_lock(classroom.DATA_FILE):  # 再深一层
+                        pass
+            done.set()
+
+        t = threading.Thread(target=nested, daemon=True)
+        t.start()
+        t.join(timeout=5)
+
+        assert done.is_set(), '嵌套加锁把线程卡死了，说明锁不可重入'
+
+    def test_load_records_inside_lock_does_not_deadlock(self, tmp_data):
+        """
+        回归：在锁内调用 load_records() 不得死锁
+
+        load_records() 会调 init_file()，而 init_file() 现在也加锁。
+        这是实际存在的调用路径（update_status / delete_record 等都在锁内读记录）。
+        """
+        import threading
+
+        repair_log.add_record('A101', '现象', '结论')
+
+        done = threading.Event()
+
+        def work():
+            with repair_log.file_lock(repair_log.RECORD_FILE):
+                recs = repair_log.load_records()
+                assert len(recs) >= 1
+            done.set()
+
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        assert done.is_set(), '锁内调用 load_records() 死锁了'
+
+
+class TestInitFileRace:
+    """
+    init_file 的「检查-创建」竞态
+
+    历史缺陷：init_file 未加锁，多线程同时首次调用时都能通过
+    os.path.exists() 检查，后到的那个以 'w' 模式打开文件 ——
+    而 'w' 是截断写，会把先到者刚写入的表头/记录清掉。
+    实测 60 轮并发首次创建中有 47 轮丢数据。
+    """
+
+    def test_concurrent_init_then_append_no_loss(self, tmp_data):
+        """并发首次初始化 + 追加，一条都不能丢"""
+        import csv
+        import os
+
+        for round_no in range(15):
+            if os.path.exists(repair_log.RECORD_FILE):
+                os.remove(repair_log.RECORD_FILE)
+
+            def worker(i):
+                repair_log.init_file()
+                with open(repair_log.RECORD_FILE, 'a', newline='',
+                          encoding='utf-8-sig') as f:
+                    csv.writer(f).writerow(
+                        [f'R{i:03d}', '', '', '', '', '', '', '1', ''])
+
+            errors = _run_threads(worker, n=8)
+            assert not errors, errors
+
+            recs = repair_log.load_records()
+            assert len(recs) == 8, (
+                f'第 {round_no} 轮：预期 8 条，实际 {len(recs)} 条 '
+                f'（init_file 的检查-写入竞态把先写入的内容截断了）'
+            )

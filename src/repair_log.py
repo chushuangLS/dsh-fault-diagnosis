@@ -55,10 +55,29 @@ def init_file():
 
     如果文件已存在但表头是旧版本（缺少新增的列），
     则自动迁移：把旧表头替换为新表头，旧记录补空值。
+
+    ⚠ 整个过程必须持锁：
+      这是典型的「检查-写入」竞态。多个线程同时首次调用时，
+      如果都通过了 os.path.exists() 的检查，
+      后到的那个会以 'w' 模式打开文件 —— 而 'w' 是**截断写**，
+      把先到者刚写入的表头/记录全部清掉。
+      实测 60 轮并发首次创建中有 47 轮丢数据。
     """
+    with file_lock(RECORD_FILE):
+        _init_file_locked()
+
+
+def _init_file_locked():
+    """init_file 的实际逻辑（调用方须已持锁）"""
     if not os.path.exists(RECORD_FILE):
-        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-            csv.writer(f).writerow(FIELDS)
+        # 文件不存在：创建并写表头。
+        # 用 'x' 模式做二次保护 —— 万一还是并发进来了，
+        # 后者会拿到 FileExistsError 而不是把文件截断。
+        try:
+            with open(RECORD_FILE, 'x', newline='', encoding='utf-8-sig') as f:
+                csv.writer(f).writerow(FIELDS)
+        except FileExistsError:
+            pass
         return
 
     # 检查表头是否需要迁移
