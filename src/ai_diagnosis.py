@@ -118,28 +118,68 @@ def get_client():
     return OpenAI(api_key=api_key, base_url=API_BASE)
 
 
-def build_knowledge_context():
-    """把本地知识库整理成文本，作为 AI 的参考"""
-    data_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'fault_cases.json')
+def build_knowledge_context(query=''):
+    """
+    构建知识库上下文（检索增强，RAG 的轻量实现）
 
-    if not os.path.exists(data_file):
+    与早期版本的区别：
+      早期：把全部案例塞进提示词 —— 案例一多就浪费 token，且干扰判断
+      现在：先用本地检索找出 Top-3 相似案例，只注入这几条
+
+    参数：
+      query - 用户的故障描述；为空时回退到「注入全部」的行为（兼容旧调用）
+    """
+    try:
+        import knowledge
+    except ImportError:
         return ""
 
+    # 有查询词 → 只注入相关案例
+    if query:
+        return knowledge.build_context(query)
+
+    # 没有查询词（兼容旧调用）→ 给出知识库概览而不是全文
     try:
-        with open(data_file, 'r', encoding='utf-8') as f:
-            cases = json.load(f)['cases']
+        s = knowledge.stats()
     except Exception:
         return ""
 
-    if not cases:
+    if not s.get('total'):
         return ""
 
-    lines = ["【本校机房历史故障参考】"]
-    for case in cases:
-        lines.append(f"{case['category']}：{case['symptom']}")
-        lines.append(f"  常见原因：{'；'.join(case['causes'][:3])}")
+    cats = '、'.join(f"{k}（{v}条）" for k, v in s['by_category'].items())
+    return f"【本校机房故障知识库】共 {s['total']} 条案例，覆盖：{cats}"
 
-    return "\n".join(lines)
+
+def save_diagnosis_case(session):
+    """
+    把一次完成的诊断沉淀进知识库
+
+    这是"知识库越用越聪明"的入口：
+    每次成功诊断后调用，把现象与结论提取成结构化案例。
+
+    参数：session - DiagnosisSession 实例
+    返回：(是否新增, 提示信息)
+    """
+    try:
+        import knowledge
+    except ImportError:
+        return False, '知识库模块不可用'
+
+    if not session.finished or not session.conclusion:
+        return False, '诊断未完成，不沉淀'
+
+    # 已报修的故障只记录结论，不作为"已解决案例"沉淀
+    # （因为还没验证结论是否正确）
+    if session.need_repair:
+        return False, '结论为待报修，暂不沉淀（待验证）'
+
+    return knowledge.save_case(
+        symptom=session.symptom,
+        conclusion=session.conclusion,
+        excluded=getattr(session, 'excluded', None),
+        classroom=session.classroom,
+    )
 
 
 class DiagnosisSession:
@@ -160,15 +200,42 @@ class DiagnosisSession:
         self.need_repair = False   # 结论是否需要报修
         self.conclusion = ''       # 诊断结论
         self._last_asked_classroom = False   # AI 上一句是否在问教室号
+        self.excluded = []         # 已排除的原因（用于沉淀案例）
+        self._knowledge_injected = False     # 是否已注入检索结果
+        self.use_knowledge = use_knowledge
+        self.knowledge_hits = []   # 本次命中的历史案例
 
-        # 初始化：系统提示词
+        # 初始化：只放系统提示词
+        # 知识库不在这里注入 —— 因为此时还不知道用户要问什么，
+        # 等拿到故障描述后用检索的方式精准注入（见 _inject_knowledge）
         self.history.append({"role": "system", "content": SYSTEM_PROMPT})
 
-        # 可选：加入知识库
-        if use_knowledge:
-            ctx = build_knowledge_context()
-            if ctx:
-                self.history.append({"role": "system", "content": ctx})
+    def _inject_knowledge(self, query):
+        """
+        根据用户描述检索并注入相关案例（RAG 的轻量实现）
+
+        只在首次拿到故障描述时调用一次。
+        """
+        if not self.use_knowledge or self._knowledge_injected:
+            return
+
+        self._knowledge_injected = True
+
+        try:
+            import knowledge
+            hits = knowledge.search(query)
+        except Exception:
+            return
+
+        if not hits:
+            return
+
+        self.knowledge_hits = hits
+
+        # 只注入检索到的 Top-N，而不是全部案例
+        ctx = knowledge.build_context(query)
+        if ctx:
+            self.history.append({"role": "system", "content": ctx})
 
     def set_symptom(self, text):
         """记录用户最初描述的故障现象"""
@@ -249,6 +316,9 @@ class DiagnosisSession:
             if extracted:
                 self.classroom = extracted
 
+        # 首次拿到故障描述 → 检索并注入相关历史案例
+        self._inject_knowledge(self.symptom or user_input)
+
         # 调用 API（带上完整历史）
         response = self.client.chat.completions.create(
             model=MODEL,
@@ -308,6 +378,9 @@ class DiagnosisSession:
             extracted = self._extract_classroom(user_input)
             if extracted:
                 self.classroom = extracted
+
+        # 首次拿到故障描述 → 检索并注入相关历史案例
+        self._inject_knowledge(self.symptom or user_input)
 
         # 流式调用
         stream = self.client.chat.completions.create(
