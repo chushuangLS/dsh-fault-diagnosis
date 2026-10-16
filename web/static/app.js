@@ -18,6 +18,8 @@ function enterApp(view) {
     landingEl.classList.add('hidden');
     appEl.classList.remove('hidden');
     switchView(view || 'chat');
+    // 元素此时才可见，offsetWidth 才有值
+    requestAnimationFrame(() => movePillIndicator());
   }, 380);
 }
 
@@ -45,9 +47,12 @@ $('#brand-home').addEventListener('click', backToLanding);
 function switchView(view) {
   currentView = view;
 
-  document.querySelectorAll('.tab').forEach(t => {
+  document.querySelectorAll('.pill-item').forEach(t => {
     t.classList.toggle('active', t.dataset.view === view);
   });
+
+  // 滑动指示器跟随
+  movePillIndicator();
 
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const target = $('#view-' + view);
@@ -55,6 +60,7 @@ function switchView(view) {
 
   if (view === 'records') loadRecords();
   if (view === 'stats') loadStats();
+  if (view === 'tasks') loadTasks();
   if (view === 'chat') {
     const inp = $('#input');
     if (inp) setTimeout(() => inp.focus(), 100);
@@ -62,9 +68,38 @@ function switchView(view) {
   updateDrawer();
 }
 
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => switchView(tab.dataset.view));
+/**
+ * 把指示器移动到当前选中项的位置和宽度
+ */
+function movePillIndicator() {
+  const track = $('#pill-track');
+  const indicator = $('#pill-indicator');
+  if (!track || !indicator) return;
+
+  const active = track.querySelector('.pill-item.active');
+  if (!active) return;
+
+  // 首次调用时禁用过渡，避免从初始位置滑入
+  const first = indicator.dataset.init !== '1';
+
+  indicator.style.width = active.offsetWidth + 'px';
+  indicator.style.transform = `translateX(${active.offsetLeft - 5}px)`;
+
+  if (first) {
+    indicator.style.transition = 'none';
+    indicator.dataset.init = '1';
+    requestAnimationFrame(() => {
+      indicator.style.transition = '';
+    });
+  }
+}
+
+document.querySelectorAll('.pill-item').forEach(item => {
+  item.addEventListener('click', () => switchView(item.dataset.view));
 });
+
+// 窗口尺寸变化时重新定位指示器
+window.addEventListener('resize', () => movePillIndicator());
 
 /* ============================================================
    右侧抽屉
@@ -115,10 +150,8 @@ document.addEventListener('keydown', (e) => {
 let sessionRounds = 0;
 
 function updateDrawer() {
-  $('#d-classroom').textContent = currentClassroom || '—';
-  $('#d-rounds').textContent = sessionRounds;
-  $('#d-state').textContent = sessionState;
   loadRecentRecords();
+  refreshDrawerStats();
 }
 
 let currentClassroom = '';
@@ -305,7 +338,11 @@ async function sendMessage() {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({
+        message: text,
+        building: pickedBuilding,
+        classroom: pickedRoom,
+      }),
     });
 
     if (!res.ok) {
@@ -388,6 +425,18 @@ async function sendMessage() {
               currentClassroom = '';
               sessionState = '待开始';
               updateDrawer();
+              // 清空教室选择，准备下一次诊断
+              pickedBuilding = '';
+              pickedRoom = '';
+              const bSel = $('#pick-building');
+              const rSel = $('#pick-room');
+              if (bSel) bSel.value = '';
+              if (rSel) {
+                rSel.innerHTML = '<option value="">选择教室</option>';
+                rSel.disabled = true;
+              }
+              const rp = $('#room-picker');
+              if (rp) rp.classList.remove('picked');
             }, 1500);
           }
 
@@ -493,7 +542,9 @@ async function loadRecords() {
       el.innerHTML = `
         <div class="record-head">
           <span class="record-id">${escapeHtml(r['记录编号'])}</span>
-          <span class="record-classroom">教室 ${escapeHtml(r['教室'])}</span>
+          <span class="record-classroom">${r['教学楼']
+            ? escapeHtml(r['教学楼']) + ' · ' + escapeHtml(r['教室'])
+            : '教室 ' + escapeHtml(r['教室'])}</span>
           <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
           <span class="record-time">${escapeHtml(r['时间'])}</span>
         </div>
@@ -686,9 +737,658 @@ async function loadStats() {
 // 窗口尺寸变化时重绘图表
 window.addEventListener('resize', () => {
   [chartStatus, chartClassroom, chartTrend].forEach(c => c && c.resize());
+  if (roomChart) roomChart.resize();
 });
+
+/* ============================================================
+   后台管理：教室与设备
+   ============================================================ */
+const adminModal = $('#admin-modal');
+let roomChart = null;
+let classroomCache = null;
+
+// 打开 / 关闭
+function openAdmin() {
+  adminModal.classList.remove('hidden');
+  showListView();
+  loadClassrooms();
+}
+function closeAdmin() {
+  adminModal.classList.add('hidden');
+  if (roomChart) { roomChart.dispose(); roomChart = null; }
+}
+
+$('#gear-btn').addEventListener('click', openAdmin);
+$('#admin-close').addEventListener('click', closeAdmin);
+adminModal.addEventListener('click', (e) => {
+  if (e.target === adminModal) closeAdmin();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !adminModal.classList.contains('hidden')) closeAdmin();
+});
+
+// 两个视图切换
+function showListView() {
+  $('#admin-list-view').classList.remove('hidden');
+  $('#admin-room-view').classList.add('hidden');
+  $('#admin-title').textContent = '教室与设备管理';
+  if (roomChart) { roomChart.dispose(); roomChart = null; }
+}
+
+function showRoomView() {
+  $('#admin-list-view').classList.add('hidden');
+  $('#admin-room-view').classList.remove('hidden');
+}
+
+$('#back-to-list').addEventListener('click', () => {
+  showListView();
+  refreshDrawerStats();
+});
+
+// ---------- 加载教室列表 ----------
+async function loadClassrooms() {
+  const box = $('#building-list');
+  box.innerHTML = '<div class="empty">加载中…</div>';
+
+  try {
+    const res = await fetch('/api/classrooms');
+    const d = await res.json();
+    classroomCache = d;
+
+    if (!d.buildings.length) {
+      box.innerHTML = `<div class="empty">
+        <span class="icon">🏫</span>
+        还没有教学楼，请在上方添加
+      </div>`;
+      return;
+    }
+
+    box.innerHTML = d.buildings.map(b => {
+      const rooms = b.rooms.length
+        ? b.rooms.map(r => roomRowHtml(b.name, r)).join('')
+        : '<div class="empty" style="padding:22px;font-size:13px">该教学楼下还没有教室</div>';
+
+      return `
+        <div class="building-group">
+          <div class="building-head">
+            <span class="building-name">
+              🏢 ${escapeHtml(b.name)}
+              <span class="count">${b.rooms.length} 间</span>
+            </span>
+            <button class="icon-btn" data-del-building="${escapeHtml(b.name)}">删除</button>
+          </div>
+          ${rooms}
+          <div class="admin-toolbar" style="padding:12px 16px;margin:0">
+            <input type="text" placeholder="教室名，如 A101" data-room-name="${escapeHtml(b.name)}">
+            <input type="number" placeholder="电脑数" style="max-width:100px" data-room-total="${escapeHtml(b.name)}">
+            <input type="number" placeholder="损坏" style="max-width:90px" data-room-broken="${escapeHtml(b.name)}">
+            <button class="btn-primary btn-sm" data-add-room="${escapeHtml(b.name)}">添加教室</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    bindListEvents();
+
+  } catch (err) {
+    box.innerHTML = `<div class="empty">加载失败：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function roomRowHtml(building, r) {
+  const total = r.total || 0;
+  const broken = r.broken || 0;
+  const healthy = total - broken;
+  const pct = total > 0 ? Math.round(healthy / total * 100) : 0;
+
+  return `
+    <div class="room-row" data-open-room="${escapeHtml(building)}" data-room="${escapeHtml(r.name)}">
+      <span class="rname">${escapeHtml(r.name)}</span>
+      <span class="rstat">
+        <span>总数 <b>${total}</b></span>
+        <span>正常 <b>${healthy}</b></span>
+        <span class="rbroken">损坏 <b>${broken}</b></span>
+      </span>
+      <span class="health-bar"><span style="width:${pct}%"></span></span>
+      <span class="arrow">›</span>
+    </div>
+  `;
+}
+
+function bindListEvents() {
+  // 删除教学楼
+  document.querySelectorAll('[data-del-building]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.delBuilding;
+      if (!confirm(`确定删除教学楼「${name}」及其下全部教室？`)) return;
+      await fetch('/api/classrooms/building/' + encodeURIComponent(name), { method: 'DELETE' });
+      loadClassrooms();
+      refreshDrawerStats();
+    });
+  });
+
+  // 添加教室
+  document.querySelectorAll('[data-add-room]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const b = btn.dataset.addRoom;
+      const nameEl = document.querySelector(`[data-room-name="${CSS.escape(b)}"]`);
+      const totalEl = document.querySelector(`[data-room-total="${CSS.escape(b)}"]`);
+      const brokenEl = document.querySelector(`[data-room-broken="${CSS.escape(b)}"]`);
+
+      const res = await fetch('/api/classrooms/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building: b,
+          name: nameEl.value.trim(),
+          total: totalEl.value || 0,
+          broken: brokenEl.value || 0,
+        }),
+      });
+      const d = await res.json();
+      if (!d.ok) { alert(d.message); return; }
+      loadClassrooms();
+      refreshDrawerStats();
+    });
+  });
+
+  // 点击教室行 → 详情
+  document.querySelectorAll('[data-open-room]').forEach(row => {
+    row.addEventListener('click', () => {
+      openRoomDetail(row.dataset.openRoom, row.dataset.room);
+    });
+  });
+}
+
+// 添加教学楼
+$('#add-building').addEventListener('click', async () => {
+  const input = $('#new-building');
+  const name = input.value.trim();
+  if (!name) { alert('请输入教学楼名称'); return; }
+
+  const res = await fetch('/api/classrooms/building', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const d = await res.json();
+  if (!d.ok) { alert(d.message); return; }
+
+  input.value = '';
+  loadClassrooms();
+  refreshDrawerStats();
+});
+
+// ---------- 教室详情 ----------
+async function openRoomDetail(building, roomName) {
+  showRoomView();
+  $('#admin-title').textContent = `教室详情 · ${building}-${roomName}`;
+  $('#room-detail').innerHTML = '<div class="empty">加载中…</div>';
+
+  // 取教室台账 + 该教室的故障记录
+  let d;
+  try {
+    const res = await fetch(
+      `/api/classrooms/room-detail?building=${encodeURIComponent(building)}&room=${encodeURIComponent(roomName)}`
+    );
+    d = await res.json();
+  } catch (err) {
+    $('#room-detail').innerHTML = `<div class="empty">加载失败：${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const info = d.info;
+  if (!info) {
+    $('#room-detail').innerHTML = '<div class="empty">未找到该教室</div>';
+    return;
+  }
+
+  const total = info.total || 0;
+  const broken = info.broken || 0;
+  const healthy = Math.max(total - broken, 0);
+  const c = d.counts;
+
+  // 损坏原因列表（未解决的记录）
+  const unresolved = d.records.filter(r => r['状态'] !== '已解决');
+  const causeHtml = unresolved.length
+    ? unresolved.map(r => `
+        <div class="cause-item">
+          <div class="cause-top">
+            <span class="cause-id">${escapeHtml(r['记录编号'])}</span>
+            <span class="badge ${escapeHtml(r['状态'])}">${escapeHtml(r['状态'])}</span>
+            <span class="cause-time">${escapeHtml(r['时间'])}</span>
+          </div>
+          <div class="cause-text">${escapeHtml(r['诊断结论'] || r['故障现象']).replace(/\n/g, '<br>')}</div>
+          <div class="cause-actions">
+            <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
+            <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">标记已解决</button>
+          </div>
+        </div>
+      `).join('')
+    : '<div class="cause-empty">该教室当前没有未解决的故障 ✅</div>';
+
+  $('#room-detail').innerHTML = `
+    <h4>${escapeHtml(building)} · ${escapeHtml(roomName)}</h4>
+    <div class="sub-line">损坏数量由报修台账自动统计</div>
+
+    <div class="detail-stats">
+      <div class="detail-stat tot"><div class="dv">${total}</div><div class="dl">电脑总数</div></div>
+      <div class="detail-stat ok"><div class="dv">${healthy}</div><div class="dl">正常</div></div>
+      <div class="detail-stat bad"><div class="dv">${broken}</div><div class="dl">损坏（未解决）</div></div>
+    </div>
+
+    <div id="room-chart"></div>
+
+    <div class="cause-section">
+      <h5>损坏与故障明细</h5>
+      <div class="cause-summary">
+        <span>未报修 <b>${c.pending}</b></span>
+        <span>已报修 <b>${c.reported}</b></span>
+        <span>已解决 <b>${c.resolved}</b></span>
+      </div>
+      <div class="cause-list">${causeHtml}</div>
+    </div>
+
+    <div class="edit-form">
+      <div class="edit-field">
+        <label>电脑总数</label>
+        <input type="number" id="edit-total" value="${total}" min="0">
+      </div>
+      <div class="edit-field">
+        <label>损坏数量（自动统计，不可改）</label>
+        <input type="number" value="${broken}" disabled
+               style="opacity:0.6;cursor:not-allowed">
+      </div>
+      <div class="edit-field" style="grid-column:1/-1">
+        <label>备注</label>
+        <input type="text" id="edit-note" value="${escapeHtml(info.note || '')}"
+               placeholder="如：第三排第 2 台频繁死机">
+      </div>
+      <div class="edit-actions">
+        <button class="btn-primary btn-sm" id="save-room">保存修改</button>
+        <button class="btn-danger" id="del-room">删除该教室</button>
+      </div>
+    </div>
+  `;
+
+  // 环形图
+  roomChart = echarts.init($('#room-chart'));
+  roomChart.setOption({
+    textStyle: { color: '#8b98a5' },
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: '#8b98a5' }, itemWidth: 12, itemHeight: 12 },
+    series: [{
+      type: 'pie',
+      radius: ['45%', '70%'],
+      center: ['50%', '44%'],
+      itemStyle: { borderColor: '#141a21', borderWidth: 3 },
+      label: { show: false },
+      data: [
+        { value: healthy, name: '正常', itemStyle: { color: '#22c55e' } },
+        { value: broken, name: '损坏', itemStyle: { color: '#ef4444' } },
+      ].filter(x => x.value > 0),
+    }],
+  });
+
+  // 明细里直接改状态 → 损坏数随之变化
+  document.querySelectorAll('[data-set-status]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      await fetch('/api/records/' + encodeURIComponent(btn.dataset.setStatus), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: btn.dataset.to }),
+      });
+      // 重新加载本页 + 刷新抽屉与列表
+      openRoomDetail(building, roomName);
+      refreshDrawerStats();
+      if (classroomCache) loadClassrooms();
+    });
+  });
+
+  // 保存（只改总数与备注）
+  $('#save-room').addEventListener('click', async () => {
+    const res2 = await fetch('/api/classrooms/room', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        building,
+        name: roomName,
+        total: $('#edit-total').value,
+        note: $('#edit-note').value,
+      }),
+    });
+    const d2 = await res2.json();
+    if (!d2.ok) { alert(d2.message); return; }
+    openRoomDetail(building, roomName);
+    refreshDrawerStats();
+    loadClassrooms();
+  });
+
+  // 删除
+  $('#del-room').addEventListener('click', async () => {
+    if (!confirm(`确定删除教室「${roomName}」？`)) return;
+    await fetch('/api/classrooms/room', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ building, name: roomName }),
+    });
+    showListView();
+    loadClassrooms();
+    refreshDrawerStats();
+  });
+}
+
+// ---------- 更新抽屉里的设备总览 ----------
+async function refreshDrawerStats() {
+  try {
+    const res = await fetch('/api/classrooms/summary');
+    const s = await res.json();
+    $('#d-buildings').textContent = s.buildings ?? '—';
+    $('#d-rooms').textContent = s.rooms ?? '—';
+    $('#d-pcs').textContent = s.total_pcs ?? '—';
+    $('#d-broken').textContent = s.broken_pcs ?? '—';
+  } catch { /* 忽略 */ }
+}
+
+/* ============================================================
+   诊断页：教室选择条
+   ============================================================ */
+let pickedBuilding = '';
+let pickedRoom = '';
+
+async function loadRoomPicker() {
+  const bSel = $('#pick-building');
+  const rSel = $('#pick-room');
+
+  try {
+    const res = await fetch('/api/classrooms');
+    const d = await res.json();
+
+    // 教学楼下拉
+    bSel.innerHTML = '<option value="">选择教学楼</option>' +
+      d.buildings.map(b =>
+        `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}（${b.rooms.length}间）</option>`
+      ).join('');
+
+    // 如果没有数据，给出提示
+    if (!d.buildings.length) {
+      bSel.innerHTML = '<option value="">（请先在后台添加教学楼）</option>';
+    }
+
+    // 恢复之前的选择
+    if (pickedBuilding) {
+      bSel.value = pickedBuilding;
+      fillRooms(d, pickedBuilding);
+    }
+  } catch { /* 忽略 */ }
+}
+
+function fillRooms(data, building) {
+  const rSel = $('#pick-room');
+  const b = (data.buildings || []).find(x => x.name === building);
+
+  if (!b || !b.rooms.length) {
+    rSel.innerHTML = '<option value="">（该楼暂无教室）</option>';
+    rSel.disabled = true;
+    return;
+  }
+
+  rSel.innerHTML = '<option value="">选择教室</option>' +
+    b.rooms.map(r =>
+      `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}（${r.total}台）</option>`
+    ).join('');
+  rSel.disabled = false;
+}
+
+// 切换教学楼
+$('#pick-building').addEventListener('change', async (e) => {
+  pickedBuilding = e.target.value;
+  pickedRoom = '';
+  $('#pick-room').value = '';
+
+  if (!pickedBuilding) {
+    $('#pick-room').innerHTML = '<option value="">选择教室</option>';
+    $('#pick-room').disabled = true;
+    $('#room-picker').classList.remove('picked');
+    return;
+  }
+
+  const res = await fetch('/api/classrooms');
+  fillRooms(await res.json(), pickedBuilding);
+  $('#room-picker').classList.toggle('picked', !!pickedBuilding);
+});
+
+// 选择教室
+$('#pick-room').addEventListener('change', (e) => {
+  pickedRoom = e.target.value;
+  $('#room-picker').classList.toggle('picked', !!pickedRoom);
+});
+
+// 清除选择
+$('#rp-clear').addEventListener('click', () => {
+  pickedBuilding = '';
+  pickedRoom = '';
+  $('#pick-building').value = '';
+  $('#pick-room').innerHTML = '<option value="">选择教室</option>';
+  $('#pick-room').disabled = true;
+  $('#room-picker').classList.remove('picked');
+});
+
+/* ============================================================
+   日常报备（待办清单）
+   ============================================================ */
+let taskFilter = '';
+let taskMeta = null;
+
+// 打开 / 关闭添加表单
+$('#toggle-add-task').addEventListener('click', () => {
+  const form = $('#task-form');
+  const hidden = form.classList.toggle('hidden');
+  if (!hidden) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('#tf-teacher').focus();
+  }
+});
+$('#tf-cancel').addEventListener('click', () => {
+  $('#task-form').classList.add('hidden');
+});
+
+// 筛选
+document.querySelectorAll('[data-task-filter]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('[data-task-filter]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    taskFilter = chip.dataset.taskFilter;
+    loadTasks();
+  });
+});
+
+// 教学楼 → 教室 联动
+$('#tf-building').addEventListener('change', async (e) => {
+  const roomSel = $('#tf-room');
+  const building = e.target.value;
+
+  if (!building) {
+    roomSel.innerHTML = '<option value="">请先选教学楼</option>';
+    roomSel.disabled = true;
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/classrooms');
+    const d = await res.json();
+    const b = d.buildings.find(x => x.name === building);
+
+    if (!b || !b.rooms.length) {
+      roomSel.innerHTML = '<option value="">（该楼暂无教室）</option>';
+      roomSel.disabled = true;
+      return;
+    }
+
+    roomSel.innerHTML = '<option value="">请选择教室</option>' +
+      b.rooms.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
+    roomSel.disabled = false;
+  } catch { /* 忽略 */ }
+});
+
+// 提交
+$('#tf-submit').addEventListener('click', async () => {
+  const payload = {
+    building: $('#tf-building').value,
+    room: $('#tf-room').value,
+    task_type: $('#tf-type').value,
+    teacher: $('#tf-teacher').value,
+    major: $('#tf-major').value,
+    detail: $('#tf-detail').value,
+    due: $('#tf-due').value,
+    priority: $('#tf-priority').value,
+  };
+
+  if (!payload.room) { alert('请选择教室'); return; }
+  if (!payload.task_type) { alert('请选择需求类型'); return; }
+
+  const res = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const d = await res.json();
+  if (!d.ok) { alert(d.message); return; }
+
+  // 清空表单
+  ['#tf-teacher', '#tf-major', '#tf-detail', '#tf-due'].forEach(s => { $(s).value = ''; });
+  $('#tf-type').value = '';
+  $('#task-form').classList.add('hidden');
+
+  loadTasks();
+});
+
+// 加载清单
+async function loadTasks() {
+  const list = $('#task-list');
+  list.innerHTML = '<div class="empty">加载中…</div>';
+
+  try {
+    const url = '/api/tasks' + (taskFilter ? '?status=' + encodeURIComponent(taskFilter) : '');
+    const res = await fetch(url);
+    const d = await res.json();
+    taskMeta = d;
+
+    // 汇总卡片
+    const s = d.summary;
+    $('#task-summary').innerHTML = `
+      <div class="ts-card pending"><div class="tsv">${s.pending}</div><div class="tsl">待完成</div></div>
+      <div class="ts-card done"><div class="tsv">${s.done}</div><div class="tsl">已完成</div></div>
+      <div class="ts-card overdue"><div class="tsv">${s.overdue}</div><div class="tsl">已逾期</div></div>
+      <div class="ts-card high"><div class="tsv">${s.high}</div><div class="tsl">高优先级</div></div>
+    `;
+
+    if (!d.tasks.length) {
+      list.innerHTML = `<div class="empty">
+        <span class="icon">📝</span>
+        ${taskFilter ? '没有「' + escapeHtml(taskFilter) + '」的报备' : '还没有报备记录，点上面的「添加报备」开始'}
+      </div>`;
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    list.innerHTML = d.tasks.map(t => {
+      const isDone = t.status === '已完成';
+      const isOverdue = !isDone && t.due && t.due.slice(0, 10) < today;
+      const cls = (isDone ? 'done' : 'pending') + (isOverdue ? ' overdue' : '');
+
+      return `
+        <div class="task-item ${cls}">
+          <div class="ti-head">
+            <span class="ti-title">${escapeHtml(t.task_type)}</span>
+            <span class="ti-badge ${isDone ? 'done' : 'pending'}">${escapeHtml(t.status)}</span>
+            <span class="ti-prio ${escapeHtml(t.priority)}">${escapeHtml(t.priority)}</span>
+            <span class="ti-id">${escapeHtml(t.id)}</span>
+          </div>
+          <div class="ti-body">
+            <span class="kv">教室 <b>${escapeHtml(t.building ? t.building + ' · ' + t.room : t.room)}</b></span>
+            ${t.teacher ? `<span class="kv">教师 <b>${escapeHtml(t.teacher)}</b></span>` : ''}
+            ${t.major ? `<span class="kv">专业 <b>${escapeHtml(t.major)}</b></span>` : ''}
+            ${t.due ? `<span class="kv">预计 <b class="ti-due">${escapeHtml(t.due)}</b>${isOverdue ? ' ⚠️ 已逾期' : ''}</span>` : ''}
+            ${t.detail ? `<div style="margin-top:5px">${escapeHtml(t.detail)}</div>` : ''}
+            <div style="margin-top:5px;font-size:12px;color:var(--text-faint)">
+              提交于 ${escapeHtml(t.created)}${isDone && t.finished ? ' · 完成于 ' + escapeHtml(t.finished) : ''}
+            </div>
+          </div>
+          <div class="ti-actions">
+            <button class="${isDone ? '' : 'done-btn'}" data-toggle="${escapeHtml(t.id)}">
+              ${isDone ? '↩ 标记待完成' : '✓ 标记已完成'}
+            </button>
+            <button data-edit="${escapeHtml(t.id)}">改预计时间</button>
+            <button class="del-btn" data-del-task="${escapeHtml(t.id)}">删除</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // 绑定按钮
+    list.querySelectorAll('[data-toggle]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        await fetch('/api/tasks/' + encodeURIComponent(btn.dataset.toggle) + '/toggle', { method: 'POST' });
+        loadTasks();
+      });
+    });
+
+    list.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const cur = prompt('修改预计解决时间（格式 2026-10-25）：');
+        if (cur === null) return;
+        await fetch('/api/tasks/' + encodeURIComponent(btn.dataset.edit), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ due: cur }),
+        });
+        loadTasks();
+      });
+    });
+
+    list.querySelectorAll('[data-del-task]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('确定删除这条报备？')) return;
+        await fetch('/api/tasks/' + encodeURIComponent(btn.dataset.delTask), { method: 'DELETE' });
+        loadTasks();
+      });
+    });
+
+  } catch (err) {
+    list.innerHTML = `<div class="empty">加载失败：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// 初始化报备表单的选项
+async function initTaskForm() {
+  try {
+    const res = await fetch('/api/tasks');
+    const d = await res.json();
+
+    $('#tf-type').innerHTML = '<option value="">请选择</option>' +
+      d.types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+
+    $('#tf-priority').innerHTML = d.priorities.map(p =>
+      `<option value="${escapeHtml(p)}"${p === '中' ? ' selected' : ''}>${escapeHtml(p)}</option>`
+    ).join('');
+
+    // 教学楼下拉
+    const cres = await fetch('/api/classrooms');
+    const cd = await cres.json();
+    $('#tf-building').innerHTML = '<option value="">请选择</option>' +
+      cd.buildings.map(b =>
+        `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`
+      ).join('');
+  } catch { /* 忽略 */ }
+}
 
 /* ============================================================
    初始化
    ============================================================ */
 loadLandingStats();
+loadRoomPicker();
+initTaskForm();

@@ -72,7 +72,7 @@
 <!-- ========== 主应用 ========== -->
 <div id="app" class="app hidden">
 
-  <!-- 顶部导航 -->
+  <!-- 顶部品牌栏 -->
   <header class="topbar">
     <div class="brand" id="brand-home" title="返回首页">
       <span class="logo">🔧</span>
@@ -81,12 +81,52 @@
         <p class="sub">对话式排查 · AI 驱动 · 自动记录</p>
       </div>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-view="chat">诊断</button>
-      <button class="tab" data-view="records">报修记录</button>
-      <button class="tab" data-view="stats">数据看板</button>
-    </nav>
   </header>
+
+  <!-- 胶囊导航（常驻顶部，带滑动指示器） -->
+  <nav class="pill-bar">
+    <div class="pill-track" id="pill-track">
+      <span class="pill-indicator" id="pill-indicator"></span>
+
+      <button class="pill-item active" data-view="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+        </svg>
+        <span>诊断</span>
+      </button>
+
+      <button class="pill-item" data-view="records">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="13" x2="16" y2="13"/>
+          <line x1="8" y1="17" x2="13" y2="17"/>
+        </svg>
+        <span>报修记录</span>
+      </button>
+
+      <button class="pill-item" data-view="stats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>数据看板</span>
+      </button>
+
+      <button class="pill-item" data-view="tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"/>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        <span>日常报备</span>
+      </button>
+    </div>
+  </nav>
 
   <main>
 
@@ -113,8 +153,20 @@
           </div>
         </div>
 
+        <!-- 教室选择条：从台账选择，免去手输 -->
+        <div class="room-picker" id="room-picker">
+          <span class="rp-label">教室</span>
+          <select id="pick-building" class="rp-select">
+            <option value="">选择教学楼</option>
+          </select>
+          <select id="pick-room" class="rp-select" disabled>
+            <option value="">选择教室</option>
+          </select>
+          <button id="rp-clear" class="rp-clear" title="清除选择">✕</button>
+        </div>
+
         <div class="composer">
-          <input id="input" type="text" placeholder="描述故障现象，例如：501教室电脑开不了机"
+          <input id="input" type="text" placeholder="描述故障现象，例如：电脑开不了机"
                  autocomplete="off">
           <button id="send" class="btn-primary">发送</button>
           <button id="reset" class="btn-ghost" title="重新开始一次诊断">重新开始</button>
@@ -200,6 +252,75 @@
       </div>
     </section>
 
+    <!-- ========== 日常报备（待办清单） ========== -->
+    <section id="view-tasks" class="view">
+      <div class="panel">
+
+        <div class="panel-head">
+          <h2>日常报备</h2>
+          <div class="filters">
+            <button class="chip active" data-task-filter="">全部</button>
+            <button class="chip" data-task-filter="待完成">待完成</button>
+            <button class="chip" data-task-filter="已完成">已完成</button>
+            <button class="btn-primary btn-sm" id="toggle-add-task">＋ 添加报备</button>
+          </div>
+        </div>
+
+        <!-- 汇总卡片 -->
+        <div class="task-summary" id="task-summary"></div>
+
+        <!-- 添加表单（默认隐藏） -->
+        <div class="task-form hidden" id="task-form">
+          <div class="tf-grid">
+            <div class="tf-field">
+              <label>教学楼 *</label>
+              <select id="tf-building">
+                <option value="">请选择</option>
+              </select>
+            </div>
+            <div class="tf-field">
+              <label>教室 *</label>
+              <select id="tf-room" disabled>
+                <option value="">请先选教学楼</option>
+              </select>
+            </div>
+            <div class="tf-field">
+              <label>需求类型 *</label>
+              <select id="tf-type"></select>
+            </div>
+            <div class="tf-field">
+              <label>优先级</label>
+              <select id="tf-priority"></select>
+            </div>
+            <div class="tf-field">
+              <label>教师姓名</label>
+              <input type="text" id="tf-teacher" placeholder="如：张老师">
+            </div>
+            <div class="tf-field">
+              <label>专业名称</label>
+              <input type="text" id="tf-major" placeholder="如：计算机科学与技术">
+            </div>
+            <div class="tf-field">
+              <label>预计解决时间</label>
+              <input type="date" id="tf-due">
+            </div>
+            <div class="tf-field tf-wide">
+              <label>详细情况</label>
+              <input type="text" id="tf-detail" placeholder="如：需要安装 Python 和 VS Code">
+            </div>
+          </div>
+          <div class="tf-actions">
+            <button class="btn-primary btn-sm" id="tf-submit">提交报备</button>
+            <button class="btn-ghost" id="tf-cancel">取消</button>
+          </div>
+        </div>
+
+        <!-- 待办清单 -->
+        <div id="task-list" class="task-list"></div>
+
+      </div>
+    </section>
+
   </main>
 
   <!-- ========== 右侧可拉出状态栏 ========== -->
@@ -218,18 +339,22 @@
     </div>
 
     <div class="drawer-section">
-      <h4>当前会话</h4>
+      <h4>设备总览</h4>
       <div class="status-line">
-        <span class="status-key">教室</span>
-        <span class="status-val" id="d-classroom">—</span>
+        <span class="status-key">教学楼</span>
+        <span class="status-val" id="d-buildings">—</span>
       </div>
       <div class="status-line">
-        <span class="status-key">排查轮次</span>
-        <span class="status-val" id="d-rounds">0</span>
+        <span class="status-key">教室总数</span>
+        <span class="status-val" id="d-rooms">—</span>
       </div>
       <div class="status-line">
-        <span class="status-key">状态</span>
-        <span class="status-val" id="d-state">待开始</span>
+        <span class="status-key">电脑总数</span>
+        <span class="status-val" id="d-pcs">—</span>
+      </div>
+      <div class="status-line">
+        <span class="status-key">损坏电脑</span>
+        <span class="status-val" id="d-broken" style="color:#f87171">—</span>
       </div>
     </div>
 
@@ -246,7 +371,46 @@
       <button class="drawer-btn" data-goto="stats">打开数据看板</button>
       <button class="drawer-btn drawer-btn-ghost" id="d-reset">重新开始诊断</button>
     </div>
+
+    <!-- 后台管理入口（齿轮） -->
+    <div class="drawer-foot">
+      <button class="gear-btn" id="gear-btn" title="教室与设备管理">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>教室与设备管理</span>
+      </button>
+    </div>
   </aside>
+
+  <!-- ========== 后台管理弹窗 ========== -->
+  <div id="admin-modal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="admin-title">教室与设备管理</h3>
+        <button id="admin-close" class="modal-close" title="关闭">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 视图 1：教学楼 + 教室列表 -->
+        <div id="admin-list-view">
+          <div class="admin-toolbar">
+            <input id="new-building" type="text" placeholder="新增教学楼名称，如：教学楼A">
+            <button id="add-building" class="btn-primary btn-sm">添加教学楼</button>
+          </div>
+          <div id="building-list" class="building-list"></div>
+        </div>
+
+        <!-- 视图 2：单间教室详情 -->
+        <div id="admin-room-view" class="hidden">
+          <button id="back-to-list" class="back-btn">← 返回教室列表</button>
+          <div id="room-detail" class="room-detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </div>
 
