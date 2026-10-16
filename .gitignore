@@ -43,6 +43,12 @@ data/repair_records.csv
 data/classrooms.json
 data/daily_tasks.json
 
+# 知识库自动沉淀（程序每次诊断后追加，属运行时数据）
+# 手工维护的知识库 data/fault_cases.json 仍然提交，
+# 这样人工积累的经验可以随仓库传递、评审和回滚。
+data/fault_cases_auto.json
+data/fault_cases_auto.json.lock
+
 # 测试与缓存
 .pytest_cache/
 .coverage

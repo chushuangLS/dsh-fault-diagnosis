@@ -26,9 +26,19 @@ DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'fault_cases.j
 
 
 def load_cases():
-    """读取故障知识库"""
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)['cases']
+    """
+    读取故障知识库（手工 + 自动沉淀）
+
+    直接复用 knowledge 模块的合并逻辑，避免两处各读各的、
+    导致命令行降级匹配看不到自动沉淀出来的案例。
+    """
+    try:
+        import knowledge
+        return knowledge._load_raw()['cases']
+    except Exception:
+        # knowledge 不可用时退回只读手工文件
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)['cases']
 
 
 def search_cases(cases, keyword):

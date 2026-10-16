@@ -25,7 +25,19 @@ import os
 import re
 from datetime import datetime
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'fault_cases.json')
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+
+# 手工维护的知识库（提交进 git，人工编辑、评审、回滚）
+MANUAL_FILE = os.path.join(DATA_DIR, 'fault_cases.json')
+
+# 程序自动沉淀的案例（git 忽略，纯运行时数据）
+#
+# 为什么要拆成两个文件：
+#   原先自动沉淀直接追加到 fault_cases.json，而该文件是 git 跟踪的，
+#   导致每跑一次诊断就产生 diff —— 手工积累的知识和机器生成的数据
+#   混在一起，既无法单独评审，也会在多人协作时互相冲突。
+#   拆分后：人能改的归人能管，机器写的归机器管。
+AUTO_FILE = os.path.join(DATA_DIR, 'fault_cases_auto.json')
 
 # 检索时最多返回几条案例
 TOP_N = 3
@@ -34,23 +46,65 @@ TOP_N = 3
 MIN_SCORE = 1.0
 
 
-def _load_raw():
-    """读取原始知识库文件"""
-    if not os.path.exists(DATA_FILE):
-        return {'version': '0.1.0', 'description': '机房故障知识库', 'cases': []}
+def _empty():
+    return {'version': '0.1.0', 'description': '机房故障知识库', 'cases': []}
+
+
+def _read_file(path):
+    """读取单个知识库文件，失败返回空结构"""
+    if not os.path.exists(path):
+        return _empty()
     try:
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         data.setdefault('cases', [])
         return data
     except Exception:
-        return {'version': '0.1.0', 'description': '机房故障知识库', 'cases': []}
+        # 读取失败不应让整个知识库不可用 —— 另一个文件仍可能正常
+        return _empty()
 
 
-def _save_raw(data):
-    """写回知识库文件"""
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+def _load_raw():
+    """
+    读取知识库（手工 + 自动沉淀合并）
+
+    合并规则：
+      · 两个文件的案例合在一起参与检索
+      · 若 id 重复，以「手工文件」为准（人工维护的内容优先级更高）
+    """
+    manual = _read_file(MANUAL_FILE)
+    auto = _read_file(AUTO_FILE)
+
+    manual_cases = manual.get('cases', [])
+    auto_cases = auto.get('cases', [])
+
+    seen = {c.get('id') for c in manual_cases}
+    merged = list(manual_cases)
+    for c in auto_cases:
+        if c.get('id') not in seen:
+            merged.append(c)
+
+    return {
+        'version': manual.get('version', '0.1.0'),
+        'description': manual.get('description', '机房故障知识库'),
+        'cases': merged,
+    }
+
+
+def _load_auto():
+    """只读自动沉淀文件（写入时用，避免把手工数据一起写回去）"""
+    return _read_file(AUTO_FILE)
+
+
+def _write_auto(data):
+    """
+    写回自动沉淀文件
+
+    注意：只写 AUTO_FILE，绝不写 MANUAL_FILE ——
+    手工知识库只应由人修改，程序不得覆盖。
+    """
+    os.makedirs(os.path.dirname(AUTO_FILE), exist_ok=True)
+    with open(AUTO_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
@@ -183,10 +237,27 @@ def _extract_terms(text):
     cleaned = re.sub(r'[，。、；：！？,.;:!?（）()\[\]【】""\'\'\s]+', ' ', text)
 
     for chunk in cleaned.split():
-        # 中文：整段如果是短词就收；长句则只收其中的关键片段
+        # 中文分段
         for seg in re.findall(r'[\u4e00-\u9fa5]+', chunk):
-            if 2 <= len(seg) <= 4 and seg not in STOP_WORDS:
+            if seg in STOP_WORDS:
+                continue
+
+            if len(seg) <= 4:
+                # 短词：整段保留（如"断网""空调漏水"）
                 terms.add(seg)
+                # 但要「同时」切出 3-gram。
+                #
+                # 为什么短词也要切：
+                #   查询"空调漏水"（4 字）整段保留，而案例症状是长句、
+                #   被切成 '空调漏'/'调漏水' —— 两边粒度不一致，交集为空，
+                #   导致刚沉淀的新案例用关键词反而搜不到。
+                #   统一都产出 3-gram 后，两边就能对上了。
+                if len(seg) > 3:
+                    for i in range(len(seg) - 2):
+                        piece = seg[i:i + 3]
+                        if any(w in piece for w in ('的', '了', '是', '在', '和')):
+                            continue
+                        terms.add(piece)
             else:
                 # 长句：滑动 3-gram，但必须不含停用词且不是常见虚词组合
                 for i in range(len(seg) - 2):
@@ -203,39 +274,38 @@ def _extract_terms(text):
     terms = {t for t in terms if t not in STOP_WORDS}
 
     # 4) 兜底归一：切分出来的词里可能还有变体（如整段就是"断网"）
-    return sorted(_normalize_terms(_drop_noise(terms)))
+    return sorted(_normalize_terms(terms))
 
 
 def _drop_noise(terms):
     """
-    过滤掉切分产生的「跨词碎片」
+    过滤掉切分产生的「跨词碎片」（当前默认不启用）
 
     问题背景：
-        "交换机断电或故障" 这一串做 3-gram 滑窗，会切出 "机断电"、"电或故" 等碎片。
-        其中某些碎片恰好是别的领域的正常词 —— 例如 "关机" 可能是
-        "交[换机][断]电" 这类跨词边界拼出来的假词。
-        结果：查"电脑自动关机"时，NET-001 因为正文里含"机断电"而被误判命中，
-        得分 1.0 刚好越过阈值，产生**假阳性**（比不匹配更糟）。
+        "交换机断电或故障" 做 3-gram 滑窗会切出 "机断电" 这类碎片，
+        可能与别的领域词产生噪音匹配。
 
-    过滤规则：
-        只有当碎片「能对应到已知词汇」时才保留 —— 即它本身是
-        KEY_TERMS、SYNONYMS 的标准词或变体之一。
-        切分产生的无意义碎片（如 "机断电"）不在任何词表里，直接丢弃。
+    为什么现在不用它：
+        本函数只保留「能对应到已知词表」的碎片，等于要求所有知识
+        都必须落在预置词表内。实际使用中会出现词表外的故障
+        （如"空调漏水"），一旦被过滤掉，新沉淀的案例就永远搜不到。
+
+    替代方案：
+        假阳性改在「打分」环节解决（见 _score 的 MIN_SCORE 与
+        3-gram 降权），既保留开放性，又不会被单个碎片带偏。
+
+    保留此函数仅作调试用途。
     """
     known = set(KEY_TERMS) | set(_SYNONYM_LOOKUP)
 
     kept = set()
     for t in terms:
-        # 命中已知词汇 → 保留
         if t in known:
             kept.add(t)
             continue
-        # 长度 >= 2 的中文词，且不是纯粹的碎片：
-        # 若它是某个已知词的子串，或某个已知词是它的子串，保留
         if any(t in k or k in t for k in known if len(k) >= 2):
             kept.add(t)
 
-    # 保底：如果过滤后什么都不剩，就不要过度过滤（避免完全匹配不上）
     return kept if kept else terms
 
 
@@ -266,21 +336,83 @@ def _score(query_terms, case_terms):
     score = 0.0
 
     for t in q:
-        if t in case_terms['category']:
+        if _hit(t, case_terms['category']):
             score += 3.0
-        if t in case_terms['symptom']:
+        if _hit(t, case_terms['symptom']):
             score += 2.0
-        if t in case_terms['causes']:
-            score += 1.0
+        if _hit(t, case_terms['causes']):
+            # 原因只给很低的权重。
+            #
+            # 为什么压低：
+            #   原因是"排查要点"，用词宽泛（如"交换机断电或故障"里的
+            #   "断电"），容易与无关领域的描述偶然重合。
+            #   只靠原因重合就判定相关，会产生假阳性 ——
+            #   例如查"电脑自动关机"时误命中网络类案例。
+            score += 0.5
 
     # 关键特征词加成
     for term, weight in KEY_TERMS.items():
         if term in query_terms:
             all_case = set(case_terms['category'] + case_terms['symptom'] + case_terms['causes'])
-            if term in all_case:
+            if _hit(term, all_case):
                 score += weight
 
     return score
+
+
+def _hit(term, term_set):
+    """
+    判断一个查询词是否命中案例的词集合
+
+    为什么要做「包含」判断而不只是相等：
+      案例正文被切成 3-gram（如 '积湿滑'），而用户可能只输入 2 个字
+      （如 '湿滑'）。若只做相等比较，'湿滑' 永远匹配不上 '积湿滑'，
+      导致短查询全部失效。
+
+      因此这里放宽为：查询词与案例词互为子串即算命中。
+      2 字词对 3 字词的单向包含足以覆盖这类边界差异，
+      且 2 字词本身噪音有限，不会明显增加误命中。
+    """
+    if term in term_set:
+        return True
+    # 仅对较长的词做包含判断，避免单字造成大面积误命中
+    if len(term) >= 2:
+        return any(term in c or c in term for c in term_set if len(c) >= 2)
+    return False
+
+
+def _is_relevant(q, case_terms):
+    """
+    判断是否「真的相关」，用于挡掉假阳性
+
+    满足任一条即算相关：
+      1. 查询与案例在「分类」或「现象」上有实质重合
+      2. 查询里的关键词（KEY_TERMS）确实出现在案例中
+
+    为什么需要第 2 条：
+      "按电源没反应"与案例的"按开机键没有任何反应"表达不同
+      （没反应 vs 任何反应），字面交集为空，但语义明显一致。
+      靠关键词表能识别出这种情况，不至于漏掉真正的相关案例。
+
+    为什么只和「原因」撞上一个泛词不算相关：
+      原因描述用词宽泛（如"交换机断电或故障"里的"断电"），
+      偶然重合几乎都是噪音 —— 查"电脑自动关机"会误命中网络类案例。
+    """
+    cat = set(case_terms['category'])
+    sym = set(case_terms['symptom'])
+
+    # 条件 1：分类或现象有实质重合（用包含判断，兼容粒度差异）
+    for t in q:
+        if _hit(t, cat) or _hit(t, sym):
+            return True
+
+    # 条件 2：命中了关键特征词，且该词确实出现在案例里
+    all_case = cat | sym | set(case_terms['causes'])
+    for term in q:
+        if term in KEY_TERMS and _hit(term, all_case):
+            return True
+
+    return False
 
 
 def search(query, top_n=TOP_N, min_score=MIN_SCORE):
@@ -304,9 +436,16 @@ def search(query, top_n=TOP_N, min_score=MIN_SCORE):
     if not q_terms:
         return []
 
+    q_set = set(q_terms)
     scored = []
     for case in cases:
-        s = _score(q_terms, _case_terms(case))
+        ct = _case_terms(case)
+
+        # 挡掉假阳性：必须与分类或现象有实质重合
+        if not _is_relevant(q_set, ct):
+            continue
+
+        s = _score(q_terms, ct)
         if s >= min_score:
             item = dict(case)
             item['_score'] = round(s, 2)
@@ -405,9 +544,6 @@ def save_case(symptom, conclusion, excluded=None, classroom=''):
     if not symptom or not conclusion:
         return False, '现象或结论为空，不沉淀'
 
-    data = _load_raw()
-    cases = data['cases']
-
     # 去重：只有现象高度相似时才跳过
     # 阈值设得高一些，避免把不同故障误判为重复
     existing = search(symptom, top_n=1, min_score=8.0)
@@ -433,9 +569,11 @@ def save_case(symptom, conclusion, excluded=None, classroom=''):
     category = _infer_category(symptom + ' ' + conclusion)
     prefix = prefix_map.get(category, 'GEN')
 
+    # 编号要在「手工 + 自动」两份案例里一起避让，
+    # 否则自动沉淀可能生成一个与手工案例重号的 id
+    all_ids = [c.get('id', '') for c in _load_raw()['cases']]
     nums = []
-    for c in cases:
-        cid = c.get('id', '')
+    for cid in all_ids:
         if cid.startswith(prefix + '-'):
             try:
                 nums.append(int(cid.split('-')[1]))
@@ -452,7 +590,7 @@ def save_case(symptom, conclusion, excluded=None, classroom=''):
     if excluded:
         steps = [f'先检查：{e}' for e in excluded[:3]] + steps
 
-    cases.append({
+    new_case = {
         'id': new_id,
         'category': category,
         'symptom': symptom,
@@ -463,18 +601,66 @@ def save_case(symptom, conclusion, excluded=None, classroom=''):
         'source': 'auto',                      # 标注：自动沉淀
         'created': datetime.now().strftime('%Y-%m-%d %H:%M'),
         'from_classroom': classroom or '',
-    })
+    }
 
-    data['cases'] = cases
-    _save_raw(data)
+    # 只追加到自动沉淀文件，不碰手工文件
+    _append_auto_case(new_case)
 
     return True, new_id
 
 
+def _append_auto_case(case):
+    """
+    把一条案例追加到自动沉淀文件
+
+    用「读-改-写 + 文件锁」保证并发安全：
+    Flask 默认多线程，两个诊断同时结束时会并发写同一个文件，
+    没有锁的话后写的会覆盖先写的，丢掉案例。
+    """
+    os.makedirs(os.path.dirname(AUTO_FILE), exist_ok=True)
+
+    lock_path = AUTO_FILE + '.lock'
+    with open(lock_path, 'w') as lock:
+        _lock(lock)
+        try:
+            # 拿到锁之后再读，确保基于最新内容追加
+            data = _load_auto()
+            data.setdefault('cases', []).append(case)
+            _write_auto(data)
+        finally:
+            _unlock(lock)
+
+
+def _lock(fh):
+    """给文件加排他锁（跨平台）"""
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except ImportError:
+        # Windows 没有 fcntl，用 msvcrt 的锁字节
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock(fh):
+    """解锁"""
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def stats():
     """知识库统计（用于演示"越用越聪明"）"""
-    data = _load_raw()
-    cases = data['cases']
+    manual_cases = _read_file(MANUAL_FILE).get('cases', [])
+    auto_cases = _read_file(AUTO_FILE).get('cases', [])
+    cases = _load_raw()['cases']
+
+    # 按 source 字段统计（更准确：手工文件里也可能有历史遗留的 auto 条目）
     auto = [c for c in cases if c.get('source') == 'auto']
 
     by_category = {}
@@ -486,6 +672,8 @@ def stats():
         'total': len(cases),
         'auto': len(auto),
         'manual': len(cases) - len(auto),
+        'manual_file': len(manual_cases),   # 手工文件里的条数
+        'auto_file': len(auto_cases),       # 自动沉淀文件里的条数
         'by_category': by_category,
     }
 
