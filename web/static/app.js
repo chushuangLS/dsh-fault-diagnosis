@@ -1506,6 +1506,7 @@ async function openRoomDetail(building, roomName) {
     ? d.records.map(r => {
         const st = r['状态'] || '未报修';
         const cls = statusClass(st);
+        const done = st === '已解决';     // 已完成的不再提供"标记"按钮
         const qty = parseInt(r['数量'], 10) || 1;
         return `
         <div class="cause-item ${cls}">
