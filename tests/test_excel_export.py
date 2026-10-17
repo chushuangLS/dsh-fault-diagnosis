@@ -4,12 +4,15 @@ Excel 导出功能测试
 导出设计：**给领导看的一页纸**
   只有一张表，一间教室一行，一眼看出每间教室的现状。
 
-  列：教学楼 | 教室 | 设备总数 | 正常 | 损坏 | 损坏原因
+  列：教学楼 | 教室 | 设备总数 | 正常 | 损坏 | 损坏时间 | 损坏原因 | 教室设施故障
 
 关键约定：
   · 未报修 / 可自修 / 已报修 → 损坏
   · 已解决                   → 正常
   这样「正常 + 损坏 = 设备总数」，领导能对上账。
+
+  · 教室设施故障（总闸、交换机等）**不计入损坏台数** ——
+    电脑本身没坏，坏的是教室的设备，单独一列展示。
 """
 
 import csv
@@ -36,7 +39,9 @@ def seed(records):
                 r.get('building', ''), r.get('room', ''),
                 r.get('symptom', '现象'), r.get('conclusion', '原因：x\n处理：y'),
                 r.get('status', repair_log.STATUS_PENDING),
-                r.get('quantity', 1), r.get('note', ''),
+                r.get('quantity', 1),
+                r.get('target', repair_log.TARGET_PC),
+                r.get('note', ''),
             ])
 
 
@@ -68,6 +73,16 @@ def read_rows(data=None, include_total=False):
     return out
 
 
+def col(name):
+    """
+    按表头名取列序号（0-based）
+
+    以前测试里直接写 row[col('损坏')]、row[col('损坏原因')]，一加列就全部错位。
+    改成按名字查，加列不会再把测试搞坏。
+    """
+    return [c[0] for c in excel_export.COLS].index(name)
+
+
 # ---------------- 工作簿结构 ----------------
 
 class TestWorkbookStructure:
@@ -82,8 +97,8 @@ class TestWorkbookStructure:
         _, data = excel_export.export_to_bytes()
         wb = load_workbook(io.BytesIO(data))
         ws = wb.active
-        headers = [ws.cell(row=3, column=i).value for i in range(1, 7)]
-        assert headers == ['教学楼', '教室', '设备总数', '正常', '损坏', '损坏原因']
+        headers = [ws.cell(row=3, column=i).value for i in range(1, 9)]
+        assert headers == [c[0] for c in excel_export.COLS]
 
     def test_no_removed_sheets(self, tmp_data, seeded_rooms):
         """旧的多表设计已删除"""
@@ -165,8 +180,8 @@ class TestStatusMapping:
                'status': status, 'quantity': 5}])
 
         row = read_rows()[0]
-        assert row[4] == 5            # 损坏
-        assert row[3] == 75           # 正常 = 80 - 5
+        assert row[col('损坏')] == 5            # 损坏
+        assert row[col('正常')] == 75           # 正常 = 80 - 5
 
     def test_resolved_counts_as_healthy(self, tmp_data, seeded_rooms):
         seed_rooms([('教学楼A', 'A101', 80)])
@@ -178,8 +193,8 @@ class TestStatusMapping:
         ])
 
         row = read_rows()[0]
-        assert row[4] == 0            # 已解决不计损坏
-        assert row[3] == 80           # 全算正常
+        assert row[col('损坏')] == 0            # 已解决不计损坏
+        assert row[col('正常')] == 80           # 全算正常
 
     def test_normal_plus_broken_equals_total(self, tmp_data, seeded_rooms):
         """正常 + 损坏 = 总数（领导能对上账）"""
@@ -194,8 +209,8 @@ class TestStatusMapping:
         ])
 
         row = read_rows()[0]
-        assert row[2] == 80
-        assert row[3] + row[4] == row[2]
+        assert row[col('设备总数')] == 80
+        assert row[col('正常')] + row[col('损坏')] == row[col('设备总数')]
 
     def test_multiple_faults_accumulate(self, tmp_data, seeded_rooms):
         """多条记录的台数累加"""
@@ -215,7 +230,7 @@ class TestCauses:
 
     def test_dash_when_healthy(self, tmp_data, seeded_rooms):
         seed_rooms([('教学楼A', 'A101', 80)])
-        assert read_rows()[0][5] == '—'
+        assert read_rows()[0][col('损坏原因')] == '—'
 
     def test_reason_with_count(self, tmp_data, seeded_rooms):
         seed_rooms([('教学楼A', 'A101', 80)])
@@ -223,7 +238,7 @@ class TestCauses:
                'conclusion': '原因：电源供应器损坏，无法供电。\n处理：更换。',
                'quantity': 3}])
 
-        cause = read_rows()[0][5]
+        cause = read_rows()[0][col('损坏原因')]
         assert '电源供应器损坏' in cause
         assert '×3' in cause
 
@@ -237,7 +252,7 @@ class TestCauses:
              'conclusion': '原因：网线松动。\n处理：插紧。', 'quantity': 1},
         ])
 
-        cause = read_rows()[0][5]
+        cause = read_rows()[0][col('损坏原因')]
         lines = cause.split('\n')
         assert len(lines) == 2
         assert any('电源损坏' in x and '×2' in x for x in lines)
@@ -254,7 +269,7 @@ class TestCauses:
             'quantity': 3,
         }])
 
-        cause = read_rows()[0][5]
+        cause = read_rows()[0][col('损坏原因')]
         # 应提取出真正的故障（电源相关），而不是整段叙述
         assert len(cause) < 30
         assert '电源' in cause
@@ -296,8 +311,8 @@ class TestUnregisteredRooms:
         seed([{'id': 'R001', 'building': '教学楼A', 'room': '999',
                'quantity': 2}])
         row = [r for r in read_rows() if r[1] == '999'][0]
-        assert row[2] == '—'
-        assert row[4] == 2
+        assert row[col('设备总数')] == '—'
+        assert row[col('损坏')] == 2
 
 
 # ---------------- 合计行 ----------------
@@ -311,15 +326,15 @@ class TestTotalRow:
 
         total_row = read_rows(include_total=True)[-1]
         assert total_row[0] == '合计'
-        assert total_row[2] == 140       # 80 + 60
-        assert total_row[3] == 136       # 140 - 4
-        assert total_row[4] == 4
+        assert total_row[col('设备总数')] == 140       # 80 + 60
+        assert total_row[col('正常')] == 136       # 140 - 4
+        assert total_row[col('损坏')] == 4
 
     def test_healthy_rate(self, tmp_data, seeded_rooms):
         seed_rooms([('教学楼A', 'A101', 100)])
         seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
                'quantity': 5}])
-        assert '95.0%' in str(read_rows(include_total=True)[-1][5])
+        assert '95.0%' in str(read_rows(include_total=True)[-1][col('损坏原因')])
 
 
 # ---------------- 边界情况 ----------------
@@ -343,10 +358,102 @@ class TestEdgeCases:
         seed([{'id': f'R00{i}', 'building': '教学楼A', 'room': 'A101'}
               for i in range(1, 6)])
         row = read_rows()[0]
-        assert row[3] >= 0
+        assert row[col('正常')] >= 0
 
     def test_placeholder_room_skipped(self, tmp_data, seeded_rooms):
         """「未填写」不是真实教室，不应占一行"""
         seed([{'id': 'R001', 'room': '未填写', 'quantity': 3}])
         rooms = [r[1] for r in read_rows() if r[0] != '合计']
         assert '未填写' not in rooms
+
+
+# ---------------- 损坏时间 ----------------
+
+class TestBrokenTime:
+    """报表里「损坏」后面要跟一列「损坏时间」"""
+
+    def test_time_column_present(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'time': '2026-10-15 09:30', 'quantity': 2}])
+        row = read_rows()[0]
+        assert row[col('损坏时间')] == '2026-10-15 09:30'
+
+    def test_earliest_time_wins(self, tmp_data, seeded_rooms):
+        """多条未解决记录时，取最早的那条 —— 问题是什么时候开始出现的"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([
+            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+             'time': '2026-10-16 14:00', 'quantity': 1},
+            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
+             'time': '2026-10-14 08:05', 'quantity': 1},
+        ])
+        assert read_rows()[0][col('损坏时间')] == '2026-10-14 08:05'
+
+    def test_no_damage_shows_dash(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        assert read_rows()[0][col('损坏时间')] == '—'
+
+    def test_resolved_not_counted_in_time(self, tmp_data, seeded_rooms):
+        """已解决的记录不该占用损坏时间"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'time': '2026-10-01 08:00', 'quantity': 3,
+               'status': repair_log.STATUS_RESOLVED}])
+        assert read_rows()[0][col('损坏时间')] == '—'
+
+
+# ---------------- 教室设施故障 ----------------
+
+class TestFacilityFaults:
+    """
+    总闸、交换机这类教室级设备故障
+
+    它们会让整间教室不能用，但**电脑本身没坏**。
+    所以不能算进「损坏」台数，而是单独一列展示。
+    """
+
+    def test_facility_not_counted_as_broken(self, tmp_data, seeded_rooms):
+        """总闸故障不应让"损坏"变成整间教室的台数"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'symptom': '整间教室没电', 'conclusion': '原因：总闸跳闸',
+               'quantity': 80,
+               'target': repair_log.TARGET_FACILITY}])
+
+        row = read_rows()[0]
+        assert row[col('损坏')] == 0, '设施故障被误算成电脑损坏'
+        assert row[col('正常')] == 80
+
+    def test_facility_shown_in_own_column(self, tmp_data, seeded_rooms):
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'symptom': '整间教室没电', 'conclusion': '原因：总闸跳闸',
+               'target': repair_log.TARGET_FACILITY}])
+
+        cell = str(read_rows()[0][col('教室设施故障')])
+        assert '总闸' in cell
+
+    def test_facility_and_pc_coexist(self, tmp_data, seeded_rooms):
+        """设施故障与电脑故障同时存在时，两者各自统计"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([
+            {'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+             'symptom': '内存坏了', 'conclusion': '原因：内存条损坏',
+             'quantity': 3, 'target': repair_log.TARGET_PC},
+            {'id': 'R002', 'building': '教学楼A', 'room': 'A101',
+             'symptom': '教室没电', 'conclusion': '原因：总闸跳闸',
+             'target': repair_log.TARGET_FACILITY},
+        ])
+
+        row = read_rows()[0]
+        assert row[col('损坏')] == 3, '电脑损坏台数不对'
+        assert '总闸' in str(row[col('教室设施故障')])
+
+    def test_resolved_facility_not_shown(self, tmp_data, seeded_rooms):
+        """已解决的设施故障不再提示"""
+        seed_rooms([('教学楼A', 'A101', 80)])
+        seed([{'id': 'R001', 'building': '教学楼A', 'room': 'A101',
+               'conclusion': '原因：总闸跳闸', 'target': repair_log.TARGET_FACILITY,
+               'status': repair_log.STATUS_RESOLVED}])
+        assert read_rows()[0][col('教室设施故障')] == '—'

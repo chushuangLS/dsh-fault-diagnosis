@@ -71,13 +71,18 @@ CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 LEFT_TOP = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
 # 列宽（字符数）
+#
+# 「损坏时间」放在损坏之后、原因之前：
+# 领导看一行时，先看坏了几台，再看什么时候坏的，最后看为什么坏。
 COLS = [
     ('教学楼', 14),
-    ('教室', 12),
+    ('教室', 11),
     ('设备总数', 11),
-    ('正常', 9),
-    ('损坏', 9),
-    ('损坏原因', 52),
+    ('正常', 8),
+    ('损坏', 8),
+    ('损坏时间', 18),
+    ('损坏原因', 38),
+    ('教室设施故障', 22),
 ]
 NCOL = len(COLS)
 LAST_COL = get_column_letter(NCOL)
@@ -192,7 +197,16 @@ def build_rows():
     _, _, rooms = build_room_index()
 
     # 按 (教学楼, 教室) 汇总故障记录
-    stats = defaultdict(lambda: {'broken': 0, 'causes': Counter()})
+    #
+    # causes 记电脑损坏原因；facilities 记教室设施故障（总闸、交换机等）。
+    # 两者必须分开：设施故障会让整间教室不能用，但一台电脑都没坏，
+    # 算进"损坏台数"会得出"损坏 80 台"这种错误数字。
+    stats = defaultdict(lambda: {
+        'broken': 0,
+        'causes': Counter(),
+        'facilities': [],
+        'times': [],
+    })
 
     for rec in repair_log.load_records():
         building = _clean(rec.get('教学楼'))
@@ -205,16 +219,47 @@ def build_rows():
         if status == repair_log.STATUS_RESOLVED:
             continue
 
-        qty = repair_log.get_quantity(rec)
         reason, _ = split_conclusion(rec.get('诊断结论'))
         key = (building, room)
+
+        # 教室设施故障：单独记录，不计入电脑台数
+        if repair_log.is_facility(rec):
+            label = _shorten_reason(reason) if reason else _clean(
+                rec.get('故障现象')) or '教室设施故障'
+            stats[key]['facilities'].append(label)
+            t = _clean(rec.get('时间'))
+            if t:
+                stats[key]['times'].append(t)
+            continue
+
+        qty = repair_log.get_quantity(rec)
 
         stats[key]['broken'] += qty
         if reason:
             stats[key]['causes'][_shorten_reason(reason)] += qty
 
+        # 损坏时间：取最早的一条未解决记录（问题是什么时候开始出现的）
+        t = _clean(rec.get('时间'))
+        if t:
+            stats[key]['times'].append(t)
+
     # 教室台账索引
     ledger = {(r['building'], r['name']): r for r in rooms}
+
+    def earliest_time(st):
+        """该教室最早的一条未解决故障时间（只显示到分钟）"""
+        times = [t for t in st.get('times', []) if t]
+        return min(times) if times else ''
+
+    def facility_text(st):
+        """把设施故障汇总成一句话"""
+        facs = st.get('facilities') or []
+        if not facs:
+            return ''
+        # 去重并计数，避免同一故障重复时列一堆
+        cnt = Counter(facs)
+        parts = [f'{k}' + (f' ×{v}' if v > 1 else '') for k, v in cnt.items()]
+        return '；'.join(parts)
 
     # 组装行：先排台账里的教室（按教学楼 → 教室），再补记录里多出来的
     rows = []
@@ -224,7 +269,8 @@ def build_rows():
         key = (r['building'], r['name'])
         used.add(key)
         total = r.get('total', 0)
-        st = stats.get(key, {'broken': 0, 'causes': Counter()})
+        st = stats.get(key, {'broken': 0, 'causes': Counter(),
+                             'facilities': [], 'times': []})
         broken = st['broken']
         rows.append({
             'building': r['building'],
@@ -232,7 +278,9 @@ def build_rows():
             'total': total,
             'healthy': max(total - broken, 0),
             'broken': broken,
+            'broken_time': earliest_time(st),
             'causes': st['causes'],
+            'facility': facility_text(st),
             'in_ledger': True,
         })
 
@@ -250,7 +298,9 @@ def build_rows():
             'total': 0,        # 台账未登记总数，未知
             'healthy': 0,
             'broken': st['broken'],
+            'broken_time': earliest_time(st),
             'causes': st['causes'],
+            'facility': facility_text(st),
             'in_ledger': False,
         })
 
@@ -347,12 +397,16 @@ def build_workbook():
         ws.cell(row=r, column=2, value=row['room'])
 
         # 台账未登记总数的教室，用「—」而不是 0，避免误读成"一台都没有"
-        total_cell = ws.cell(row=r, column=3,
-                             value=row['total'] if row['total'] else '—')
+        ws.cell(row=r, column=3,
+                value=row['total'] if row['total'] else '—')
         healthy_cell = ws.cell(row=r, column=4,
                                value=row['healthy'] if row['total'] else '—')
         broken_cell = ws.cell(row=r, column=5, value=row['broken'])
-        cause_cell = ws.cell(row=r, column=6, value=format_causes(row['causes']))
+        time_cell = ws.cell(row=r, column=6,
+                            value=row.get('broken_time') or '—')
+        cause_cell = ws.cell(row=r, column=7, value=format_causes(row['causes']))
+        facility_cell = ws.cell(row=r, column=8,
+                                value=row.get('facility') or '—')
 
         # 数字列居中
         for col in (3, 4, 5):
@@ -365,20 +419,36 @@ def build_workbook():
         if row['broken']:
             broken_cell.font = BROKEN_FONT
 
+        # 时间列居中（只到分钟，不需要换行）
+        time_cell.alignment = CENTER
+        time_cell.border = BORDER
+        time_cell.font = Font(size=10)
+
         # 原因列左对齐、自动换行
         cause_cell.alignment = LEFT_TOP
         cause_cell.border = BORDER
         cause_cell.font = Font(size=11)
 
-        # 底色：完好的教室淡绿，有损坏的淡红（一眼扫出问题）
-        fill = BAD_FILL if row['broken'] else OK_FILL
+        # 设施故障列：教室设施坏了但电脑没坏，用橙色提示
+        facility_cell.alignment = LEFT_TOP
+        facility_cell.border = BORDER
+        if row.get('facility'):
+            facility_cell.font = BROKEN_FONT
+        else:
+            facility_cell.font = Font(size=11, color='999999')
+
+        # 底色：完好且无设施故障的教室淡绿，有问题的淡红（一眼扫出问题）
+        has_issue = bool(row['broken'] or row.get('facility'))
+        fill = BAD_FILL if has_issue else OK_FILL
         for col in range(1, NCOL + 1):
             ws.cell(row=r, column=col).fill = fill
-            if col != 6:
+            if col not in (7, 8):
                 ws.cell(row=r, column=col).border = BORDER
 
-        # 行高：原因行数多时自动增高
-        n_lines = max(len(str(cause_cell.value or '').split('\n')), 1)
+        # 行高：原因/设施列行数多时自动增高
+        n_lines = max(len(str(cause_cell.value or '').split('\n')),
+                      len(str(facility_cell.value or '').split('\n')),
+                      1)
         ws.row_dimensions[r].height = max(22, 17 * n_lines + 6)
 
         r += 1
@@ -394,15 +464,21 @@ def build_workbook():
         total_all = sum(x['total'] for x in rows)
         healthy_all = sum(x['healthy'] for x in rows)
         broken_all = sum(x['broken'] for x in rows)
+        facility_rooms = sum(1 for x in rows if x.get('facility'))
 
         ws.cell(row=r, column=1, value='合计')
         ws.cell(row=r, column=2, value=f'{len(rows)} 间')
         ws.cell(row=r, column=3, value=total_all)
         ws.cell(row=r, column=4, value=healthy_all)
         ws.cell(row=r, column=5, value=broken_all)
-        ws.cell(row=r, column=6,
+        # 损坏时间在合计行没有意义，留空
+        ws.cell(row=r, column=6, value='')
+        ws.cell(row=r, column=7,
                 value=f'正常率 {healthy_all / total_all * 100:.1f}%'
                       if total_all else '—')
+        ws.cell(row=r, column=8,
+                value=f'{facility_rooms} 间有设施故障'
+                      if facility_rooms else '—')
 
         for col in range(1, NCOL + 1):
             c = ws.cell(row=r, column=col)
@@ -410,7 +486,7 @@ def build_workbook():
             c.alignment = CENTER
             c.fill = BUILDING_FILL
             c.border = Border(left=THIN, right=THIN, top=MEDIUM, bottom=MEDIUM)
-        ws.cell(row=r, column=6).alignment = LEFT_TOP
+        ws.cell(row=r, column=7).alignment = LEFT_TOP
         ws.row_dimensions[r].height = 24
 
     # 冻结表头，滚动时始终看得到列名

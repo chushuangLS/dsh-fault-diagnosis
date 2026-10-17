@@ -1395,6 +1395,8 @@ function roomRowHtml(building, r) {
   const broken = r.broken || 0;
   const healthy = total - broken;
   const pct = total > 0 ? Math.round(healthy / total * 100) : 0;
+  // 教室设施故障（总闸、交换机等）：电脑没坏，但教室不能正常用
+  const facilities = r.facility_count || 0;
 
   return `
     <div class="room-row" data-open-room="${escapeHtml(building)}" data-room="${escapeHtml(r.name)}">
@@ -1403,6 +1405,7 @@ function roomRowHtml(building, r) {
         <span>总数 <b>${total}</b></span>
         <span>正常 <b>${healthy}</b></span>
         <span class="rbroken">损坏 <b>${broken}</b></span>
+        ${facilities ? `<span class="rfacility" title="总闸/交换机等教室设备故障，不计入电脑损坏台数">设施故障 ${facilities}</span>` : ''}
       </span>
       <span class="health-bar"><span style="width:${pct}%"></span></span>
       <span class="arrow">›</span>
@@ -1501,6 +1504,12 @@ function openFaultForm(building, roomName, onDone) {
         <input type="text" class="ff-reason" list="ff-common"
                placeholder="如：电源损坏 / 网线松动 / 显示器无信号">
       </td>
+      <td>
+        <select class="ff-target" title="坏的是电脑，还是教室的设备？">
+          <option value="电脑">电脑</option>
+          <option value="教室设施">教室设施</option>
+        </select>
+      </td>
       <td class="ff-qty-cell">
         <input type="number" class="ff-qty" value="1" min="1" max="999">
       </td>
@@ -1525,8 +1534,10 @@ function openFaultForm(building, roomName, onDone) {
       </div>
       <div class="modal-body">
         <p class="ff-hint">
-          每行一条故障原因，填写**损坏数量**。同一原因的多台机器填一行即可，
-          不必逐台登记。
+          每行一条故障原因。同一原因的多台机器填一行即可，不必逐台登记。<br>
+          <b>故障对象</b>：坏的是电脑就选「电脑」（按台统计）；
+          坏的是总闸、交换机、投影这类教室设备就选「教室设施」——
+          后者会让整间教室不能用，但电脑本身没坏，不计入损坏台数。
         </p>
 
         <!-- 常见原因，供输入框自动补全 -->
@@ -1545,6 +1556,8 @@ function openFaultForm(building, roomName, onDone) {
           <option value="投影仪无信号"></option>
           <option value="插座无电"></option>
           <option value="教室总闸跳闸"></option>
+          <option value="交换机故障"></option>
+          <option value="教室空调故障"></option>
         </datalist>
 
         <table class="fault-form-table">
@@ -1552,8 +1565,9 @@ function openFaultForm(building, roomName, onDone) {
             <tr>
               <th style="width:36px">#</th>
               <th>损坏原因</th>
-              <th style="width:90px">数量</th>
-              <th style="width:190px">状态</th>
+              <th style="width:110px">故障对象</th>
+              <th style="width:80px">数量</th>
+              <th style="width:180px">状态</th>
               <th style="width:40px"></th>
             </tr>
           </thead>
@@ -1586,19 +1600,30 @@ function openFaultForm(building, roomName, onDone) {
     });
   }
 
-  /** 汇总提示：共几行、合计几台 */
+  /** 汇总提示：共几行、合计几台（设施故障不计台数） */
   function updateSummary() {
     const rows = body.querySelectorAll('.ff-row');
     let total = 0;
     let filled = 0;
+    let facilities = 0;
     rows.forEach(tr => {
       const reason = tr.querySelector('.ff-reason').value.trim();
       const qty = parseInt(tr.querySelector('.ff-qty').value, 10) || 0;
-      if (reason) { filled += 1; total += Math.max(qty, 0); }
+      const target = tr.querySelector('.ff-target').value;
+      if (!reason) return;
+      filled += 1;
+      if (target === '教室设施') {
+        facilities += 1;
+      } else {
+        total += Math.max(qty, 0);
+      }
     });
-    summaryEl.innerHTML = filled
-      ? `共 <b>${filled}</b> 条故障，合计 <b>${total}</b> 台设备`
-      : '';
+
+    const parts = [];
+    if (filled) parts.push(`共 <b>${filled}</b> 条故障`);
+    if (total) parts.push(`电脑损坏 <b>${total}</b> 台`);
+    if (facilities) parts.push(`教室设施 <b>${facilities}</b> 项`);
+    summaryEl.innerHTML = parts.join('，');
   }
 
   /** 绑定行内事件 */
@@ -1617,6 +1642,14 @@ function openFaultForm(building, roomName, onDone) {
     });
     tr.querySelector('.ff-reason').addEventListener('input', updateSummary);
     tr.querySelector('.ff-qty').addEventListener('input', updateSummary);
+    tr.querySelector('.ff-target').addEventListener('change', (e) => {
+      // 设施故障不是按台算的，数量输入框置灰
+      const isFacility = e.target.value === '教室设施';
+      const qty = tr.querySelector('.ff-qty');
+      qty.disabled = isFacility;
+      qty.title = isFacility ? '教室设施故障不按台计' : '';
+      updateSummary();
+    });
   }
 
   body.querySelectorAll('.ff-row').forEach(bindRow);
@@ -1644,6 +1677,7 @@ function openFaultForm(building, roomName, onDone) {
       if (!reason) return;   // 空行直接跳过
       faults.push({
         reason,
+        target: tr.querySelector('.ff-target').value,
         quantity: parseInt(tr.querySelector('.ff-qty').value, 10) || 1,
         status: tr.querySelector('.ff-status').value,
       });
@@ -1760,6 +1794,30 @@ async function openRoomDetail(building, roomName) {
       }).join('')
     : '<div class="cause-empty">该教室当前没有故障记录</div>';
 
+  // 教室设施故障提示（总闸、交换机等）
+  //
+  // 这类故障会让整间教室不能用，但电脑本身没坏 ——
+  // 所以它不出现在上面的"损坏台数"里，必须单独提示，
+  // 否则管理员会以为电脑都好好的，实际教室根本没法上课。
+  const facilityList = (d.facility_issues || []).filter(
+    r => r['状态'] !== '已解决');
+  const facilityHtml = facilityList.length
+    ? `<div class="facility-notice">
+         <div class="fn-head">
+           ${icon('i-alert', 14)}
+           教室设施故障 ${facilityList.length} 项 —— 电脑本身未损坏，但整间教室受影响
+         </div>
+         <ul class="fn-list">
+           ${facilityList.map(r => `
+             <li>
+               <b>${escapeHtml(r['故障现象'] || '设施故障')}</b>
+               <span class="fn-time">${escapeHtml(r['时间'] || '')}</span>
+               <span class="fn-status">${escapeHtml(r['状态'] || '')}</span>
+             </li>`).join('')}
+         </ul>
+       </div>`
+    : '';
+
   $('#room-detail').innerHTML = `
     <h4>${escapeHtml(building)} · ${escapeHtml(roomName)}</h4>
     <div class="sub-line">设备状态由报修台账自动统计，无需手工填写损坏数</div>
@@ -1782,6 +1840,8 @@ async function openRoomDetail(building, roomName) {
         <div class="dl">${icon('i-alert', 13)} 损坏</div>
       </div>
     </div>
+
+    ${facilityHtml}
 
     <div id="room-chart"></div>
 

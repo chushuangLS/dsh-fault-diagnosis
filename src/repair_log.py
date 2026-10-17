@@ -19,9 +19,9 @@ from filelock import file_lock
 RECORD_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'repair_records.csv')
 
 # 表头
-# 说明：教学楼、数量 两列是后加的，旧记录可能为空，读取时做兼容处理
+# 说明：教学楼、数量、故障对象 三列是后加的，旧记录可能为空，读取时做兼容处理
 FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊断结论',
-          '状态', '数量', '备注']
+          '状态', '数量', '故障对象', '备注']
 
 # 状态常量
 #
@@ -47,6 +47,26 @@ UNRESOLVED_STATUS = [STATUS_PENDING, STATUS_SELF_FIX, STATUS_REPORTED]
 # 哪些状态算「非硬件问题、可自行修复」
 # AI 判断为"自己修"的故障会落到这里，不占用报修资源
 SELF_FIXABLE = [STATUS_SELF_FIX]
+
+# ---------------- 故障对象 ----------------
+#
+# 只分两类，不细分：
+#
+#   电脑     —— 个别机器坏了。数量字段表示坏了几台，
+#                计入教室的「损坏台数」
+#   教室设施 —— 总闸、交换机、投影、网络、空调这类教室级设备坏了。
+#                它们会让整间教室不能用，但**电脑本身没坏**，
+#                所以不计入损坏台数，而是单独标记「设施故障」。
+#
+# 为什么必须区分：
+#   曾经总闸跳闸只能记成"损坏 80 台电脑" —— 电脑其实是好的，
+#   坏的是配电箱。这既歪曲了设备状态，也让"损坏台数"失去意义。
+TARGET_PC = '电脑'
+TARGET_FACILITY = '教室设施'
+ALL_TARGETS = [TARGET_PC, TARGET_FACILITY]
+
+# 旧数据没有这一列，一律按电脑故障处理
+LEGACY_TARGET = TARGET_PC
 
 
 def init_file():
@@ -107,6 +127,9 @@ def _init_file_locked():
             # 留空会让统计台数时算成 0
             if field == '数量' and not str(val).strip():
                 val = '1'
+            # 「故障对象」也是后加的列：旧记录按电脑故障处理
+            if field == '故障对象' and not str(val).strip():
+                val = LEGACY_TARGET
             new_row.append(val)
         migrated.append(new_row)
 
@@ -115,7 +138,7 @@ def _init_file_locked():
 
 
 def load_records():
-    """读取所有记录（兼容缺少「教学楼」列的旧文件）"""
+    """读取所有记录（兼容缺少「教学楼」「故障对象」等列的旧文件）"""
     init_file()
     with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
         rows = list(csv.DictReader(f))
@@ -131,7 +154,22 @@ def load_records():
         if r.get('状态') == LEGACY_STATUS_SELF_FIX:
             r['状态'] = STATUS_SELF_FIX
 
+        # 故障对象缺失或值不认识时，按电脑故障处理
+        if r.get('故障对象') not in ALL_TARGETS:
+            r['故障对象'] = LEGACY_TARGET
+
     return rows
+
+
+def get_target(record):
+    """读取记录的故障对象（电脑 / 教室设施）"""
+    t = (record.get('故障对象') or '').strip()
+    return t if t in ALL_TARGETS else LEGACY_TARGET
+
+
+def is_facility(record):
+    """这条记录是不是「教室设施」故障（总闸、交换机等，电脑本身没坏）"""
+    return get_target(record) == TARGET_FACILITY
 
 
 def next_id():
@@ -149,7 +187,7 @@ def next_id():
 
 
 def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
-               note='', building='', quantity=1):
+               note='', building='', quantity=1, target=TARGET_PC):
     """
     新增一条报修记录
 
@@ -161,6 +199,13 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
       note       - 备注
       building   - 教学楼名称，如 "教学楼A"（可选）
       quantity   - 损坏数量，默认 1
+      target     - 故障对象：TARGET_PC（电脑，默认）或 TARGET_FACILITY（教室设施）
+
+    关于 target：
+      「教室设施」指总闸、交换机、投影、网络、空调这类教室级设备。
+      它们坏了会让整间教室不能用，但电脑本身没坏 ——
+      因此这类记录**不计入**教室的损坏台数，而是单独标记为设施故障。
+      quantity 对设施故障没有意义（不是按台算的）。
 
     关于 quantity：
       一台机器一个故障对应一条记录；当同一批损坏原因相同
@@ -176,6 +221,14 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
     except (TypeError, ValueError):
         quantity = 1
     if quantity < 1:
+        quantity = 1
+
+    # 故障对象只接受两个合法值，其他一律按电脑处理
+    if target not in ALL_TARGETS:
+        target = TARGET_PC
+
+    # 设施故障不是按台算的，数量没有意义，统一记 1
+    if target == TARGET_FACILITY:
         quantity = 1
 
     # 加锁：编号分配基于当前文件内容，
@@ -194,6 +247,7 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
                 conclusion,
                 status,
                 quantity,
+                target,
                 note,
             ])
 
@@ -386,7 +440,9 @@ def register_faults(building, classroom, causes):
     参数：
       building  - 教学楼
       classroom - 教室
-      causes    - [{'reason': '原因描述', 'quantity': 3, 'status': '未报修'}, ...]
+      causes    - [{'reason': '原因描述', 'quantity': 3, 'status': '未报修',
+                    'target': '电脑'}, ...]
+                  target 可省略，默认「电脑」
 
     返回：(成功条数, 记录编号列表, 错误信息)
 
@@ -415,6 +471,10 @@ def register_faults(building, classroom, causes):
         if status not in ALL_STATUS:
             status = STATUS_PENDING
 
+        target = item.get('target') or TARGET_PC
+        if target not in ALL_TARGETS:
+            target = TARGET_PC
+
         rid = add_record(
             classroom=classroom,
             symptom=reason,
@@ -423,6 +483,7 @@ def register_faults(building, classroom, causes):
             note=item.get('note', '') or '',
             building=building,
             quantity=qty,
+            target=target,
         )
         ids.append(rid)
 

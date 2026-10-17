@@ -55,6 +55,9 @@ exports/
 # 文件锁（并发写入保护用的空文件，运行时生成）
 *.lock
 
+# 数据文件备份（迁移脚本会生成 .bak，属本地过程产物）
+*.bak
+
 # 测试与缓存
 .pytest_cache/
 .coverage

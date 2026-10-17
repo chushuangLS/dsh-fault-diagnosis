@@ -1736,6 +1736,18 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .room-row .rstat b { color: var(--text); font-weight: 600; }
 .room-row .rbroken { color: #f87171; }
+
+/* 教室设施故障标记（总闸、交换机等）
+   用紫色区别于"电脑损坏"的红色 —— 坏的不是电脑，是教室的设备 */
+.room-row .rfacility {
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  border-radius: 100px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
 .room-row .arrow { color: var(--text-faint); font-size: 15px; }
 
 /* 健康度进度条 */
@@ -1779,6 +1791,53 @@ main { flex: 1; overflow: hidden; position: relative; }
   font-size: 13px;
   color: var(--text-faint);
   margin-bottom: 20px;
+}
+
+/* 教室设施故障提示
+   与"电脑损坏"分开呈现：电脑没坏，但整间教室受影响 */
+.facility-notice {
+  margin-bottom: 20px;
+  padding: 13px 16px;
+  border-radius: 11px;
+  border: 1px solid rgba(192, 132, 252, 0.32);
+  background: rgba(192, 132, 252, 0.08);
+}
+.facility-notice .fn-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #c084fc;
+}
+.facility-notice .fn-list {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.facility-notice .fn-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding-left: 22px;
+}
+.facility-notice .fn-list b {
+  color: var(--text);
+  font-weight: 500;
+}
+.facility-notice .fn-time {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.facility-notice .fn-status {
+  color: #fbbf24;
+  font-size: 12px;
 }
 
 .detail-stats {

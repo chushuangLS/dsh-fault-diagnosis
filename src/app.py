@@ -313,16 +313,26 @@ def api_chat_stream():
                     # 需要报修的记为「未报修」，可自修的记为「可自修」
                     if payload.get('finished'):
                         status = _status_for_session(ds)
+                        reply_text = payload.get('reply', '')
+
+                        # 故障对象：电脑 or 教室设施。
+                        # 总闸、交换机这类故障电脑本身没坏，
+                        # 单独归类后不计入"损坏台数"。
+                        target = ai_diagnosis.infer_target(
+                            ds.symptom, reply_text)
+
                         rid = repair_log.add_record(
                             classroom=payload.get('classroom') or '未填写',
                             symptom=ds.symptom,
-                            conclusion=payload.get('reply', ''),
+                            conclusion=reply_text,
                             status=status,
                             building=getattr(ds, 'building', '') or '',
                             quantity=payload.get('quantity', 1),
+                            target=target,
                         )
                         payload['record_id'] = rid
                         payload['status'] = status
+                        payload['target'] = target
                         payload['building'] = getattr(ds, 'building', '') or ''
 
                     # 诊断完成 → 沉淀进知识库（越用越聪明）
@@ -437,10 +447,16 @@ def api_manual_record():
         "building": "教学楼A",
         "classroom": "A101",
         "faults": [
-          {"reason": "电源损坏", "quantity": 3, "status": "未报修", "note": ""},
+          {"reason": "电源损坏", "quantity": 3, "target": "电脑",
+           "status": "未报修", "note": ""},
+          {"reason": "教室总闸跳闸", "target": "教室设施", "status": "未报修"},
           ...
         ]
       }
+
+      target 可省略，默认「电脑」。选「教室设施」表示坏的是总闸、
+      交换机、投影这类教室级设备 —— 整间教室会用不了，但电脑没坏，
+      因此不计入损坏台数。
 
       也兼容单条写法（symptom + conclusion + quantity）。
     """
@@ -667,14 +683,24 @@ def api_room_detail():
     records = list(reversed(records))
 
     # 按状态统计「台数」——一条记录可能代表多台机器，所以要累加数量
+    #
+    # 注意：只统计「电脑」类记录。总闸、交换机这类教室设施故障
+    # 电脑本身没坏，算进台数会让"损坏 80 台"这种错误数字出现。
     def machines(status):
         return sum(repair_log.get_quantity(r) for r in records
-                   if r['状态'] == status)
+                   if r['状态'] == status and not repair_log.is_facility(r))
 
     pending = machines(repair_log.STATUS_PENDING)
     self_fix = machines(repair_log.STATUS_SELF_FIX)
     reported = machines(repair_log.STATUS_REPORTED)
     resolved = machines(repair_log.STATUS_RESOLVED)
+
+    # 未解决的教室设施故障（电脑台数之外单独提示）
+    facility_issues = [
+        r for r in records
+        if repair_log.is_facility(r)
+        and r['状态'] != repair_log.STATUS_RESOLVED
+    ]
 
     return jsonify({
         'info': info,
@@ -685,7 +711,10 @@ def api_room_detail():
             'reported': reported,
             'resolved': resolved,
             'unresolved': pending + self_fix + reported,
+            # 教室设施故障：不影响上面的台数
+            'facility': len(facility_issues),
         },
+        'facility_issues': facility_issues,
     })
 
 

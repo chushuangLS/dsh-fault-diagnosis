@@ -209,6 +209,8 @@ def _room_status_counts():
         （一条记录可能代表多台同因损坏的机器）
       · 台数的唯一来源是报修台账，教室台账不再单独存"损坏数"，
         避免两处数据不一致
+      · **只统计「电脑」类故障**。总闸、交换机这类教室设施故障
+        电脑本身是好的，不能算成损坏台数（见 _room_facility_issues）
     """
     try:
         import repair_log
@@ -227,12 +229,60 @@ def _room_status_counts():
         if not room or room == '未填写':
             continue
 
+        # 设施故障单独统计，不混进电脑台数
+        if repair_log.is_facility(r):
+            continue
+
         status = r.get('状态') or repair_log.STATUS_PENDING
         qty = repair_log.get_quantity(r)
 
         key = f'{building}|{room}'
         d = result.setdefault(key, {})
         d[status] = d.get(status, 0) + qty
+
+    return result
+
+
+def _room_facility_issues():
+    """
+    每间教室未解决的「教室设施故障」
+
+    返回：{"教学楼|教室": [{'symptom': ..., 'time': ..., 'status': ...}, ...]}
+
+    为什么单独统计：
+      总闸跳闸会让整间教室停电，但电脑是好的。
+      把它算进"损坏台数"会歪曲设备状态 —— 一台电脑都没坏，
+      却显示损坏 80 台。所以设施故障单独列出来。
+    """
+    try:
+        import repair_log
+    except ImportError:
+        return {}
+
+    result = {}
+    try:
+        records = repair_log.load_records()
+    except Exception:
+        return result
+
+    for r in records:
+        room = (r.get('教室') or '').strip()
+        building = (r.get('教学楼') or '').strip()
+        if not room or room == '未填写':
+            continue
+        if not repair_log.is_facility(r):
+            continue
+
+        # 已解决的设施故障不再提示
+        if r.get('状态') == repair_log.STATUS_RESOLVED:
+            continue
+
+        key = f'{building}|{room}'
+        result.setdefault(key, []).append({
+            'symptom': (r.get('故障现象') or '').strip(),
+            'time': (r.get('时间') or '').strip(),
+            'status': r.get('状态') or '',
+        })
 
     return result
 
@@ -276,11 +326,14 @@ def summary():
     data = load()
     buildings = data['buildings']
     status_map = _room_status_counts()
+    facility_map = _room_facility_issues()
 
     total_rooms = 0
     total_pcs = 0
     total_broken = 0
     total_self_fix = 0
+    facility_rooms = 0
+    total_facility = 0
 
     for b in buildings:
         for r in b['rooms']:
@@ -294,6 +347,11 @@ def summary():
             total_self_fix += self_fix
             total_broken += broken
 
+            fac = facility_map.get(f"{b['name']}|{r['name']}", [])
+            if fac:
+                facility_rooms += 1
+                total_facility += len(fac)
+
     return {
         'buildings': len(buildings),
         'rooms': total_rooms,
@@ -301,6 +359,10 @@ def summary():
         'broken_pcs': total_broken,
         'self_fix_pcs': total_self_fix,
         'healthy_pcs': max(total_pcs - total_broken, 0),
+        # 教室设施故障：受影响的教室数 / 未解决的故障条数
+        # 这两个数字与 broken_pcs 无关 —— 设施坏了不代表电脑坏了
+        'facility_rooms': facility_rooms,
+        'facility_issues': total_facility,
     }
 
 
@@ -312,9 +374,14 @@ def flat_rooms():
       self_fix_pcs —— 可自修（黄色）
       broken_pcs   —— 不能用（含可自修，因为自修前也用不了）
       healthy_pcs  —— 正常
+
+    另有 facility_issues —— 未解决的教室设施故障（总闸、交换机等）。
+    这类故障不计入 broken_pcs：电脑本身是好的，不能用是因为教室没了电
+    或者没了网络。两者必须分开看，否则"损坏台数"会失去意义。
     """
     data = load()
     status_map = _room_status_counts()
+    facility_map = _room_facility_issues()
     out = []
 
     for b in data['buildings']:
@@ -329,6 +396,7 @@ def flat_rooms():
             resolved = by_status.get('已解决', 0)
 
             broken = pending + self_fix + reported
+            facilities = facility_map.get(key, [])
 
             out.append({
                 'building': b['name'],
@@ -343,6 +411,9 @@ def flat_rooms():
                 'resolved_pcs': resolved,
                 'healthy': max(total - broken, 0),
                 'healthy_pcs': max(total - broken, 0),
+                # 教室设施故障（不影响电脑台数）
+                'facility_count': len(facilities),
+                'facility_issues': facilities,
                 'note': r.get('note', ''),
             })
     return out
@@ -368,6 +439,7 @@ def buildings_with_stats():
     """
     data = load()
     status_map = _room_status_counts()
+    facility_map = _room_facility_issues()
 
     buildings = []
     for b in data['buildings']:
@@ -382,6 +454,7 @@ def buildings_with_stats():
             reported = by_status.get('已报修', 0)
             resolved = by_status.get('已解决', 0)
             broken = pending + self_fix + reported
+            facilities = facility_map.get(key, [])
 
             rooms.append({
                 'name': r['name'],
@@ -394,6 +467,9 @@ def buildings_with_stats():
                 'pending_pcs': pending,
                 'reported_pcs': reported,
                 'resolved_pcs': resolved,
+                # 教室设施故障（总闸、交换机等，不计入电脑台数）
+                'facility_count': len(facilities),
+                'facility_issues': facilities,
             })
 
         buildings.append({'name': b['name'], 'rooms': rooms})
