@@ -580,6 +580,35 @@ def api_statistics():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/analytics/repeated-faults', methods=['GET'])
+def api_repeated_faults():
+    """
+    反复故障：同一间教室、同一类故障累计 ≥3 次
+
+    用途：同一处反复坏，指向的往往不是配件而是根因 ——
+    反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳。
+
+    返回：
+      {
+        'items': [...],        # 按次数降序
+        'total': N,
+        'min_count': 3,        # 判定「反复」的阈值
+        'min_recur': 4,        # 判定「复发」的阈值
+      }
+    """
+    try:
+        items = repair_log.repeated_faults()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({
+        'items': items,
+        'total': len(items),
+        'min_count': repair_log.REPEAT_MIN_COUNT,
+        'min_recur': repair_log.REPEAT_MIN_RECUR,
+    })
+
+
 def _knowledge_stats():
     """知识库统计（用于展示"越用越聪明"）"""
     try:

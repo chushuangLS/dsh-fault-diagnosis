@@ -433,6 +433,107 @@ def count_machines(records, statuses=None):
     return total
 
 
+# ---------------- 反复故障 ----------------
+
+# 判定阈值
+#
+# REPEAT_MIN_COUNT：同一教室同一分类累计多少次算「反复」
+# REPEAT_MIN_RECUR：其中「修好后又出现」多少次才标「复发」
+#
+# 复发门槛设得比反复高得多，是有意的：
+# 标上「复发」意味着"这台机器/这间教室修了还是坏"，
+# 是要求人去查根因的强信号，宁可少标，标了就要有分量。
+REPEAT_MIN_COUNT = 3
+REPEAT_MIN_RECUR = 4
+
+
+def _days_between(first, last):
+    """两个 'YYYY-MM-DD HH:MM' 之间隔了几天（不足一天算 0）"""
+    from datetime import datetime
+
+    try:
+        a = datetime.strptime((first or '')[:16], '%Y-%m-%d %H:%M')
+        b = datetime.strptime((last or '')[:16], '%Y-%m-%d %H:%M')
+    except ValueError:
+        return 0
+    return max((b - a).days, 0)
+
+
+def repeated_faults(min_count=None, min_recur=None):
+    """
+    找出「同一间教室、同一类故障反复出现」的情况
+
+    为什么需要这个：
+      同一间教室反复报同一种故障，指向的往往不是配件，而是根因 ——
+      反复换内存条，可能是插槽氧化；反复报电源故障，可能是教室供电不稳。
+      这类信息在逐条记录里看不出来，必须聚合。
+
+    分类口径见 fault_category 模块（按故障现象判，不按诊断结论）。
+
+    参数：
+      min_count - 累计多少次算反复，默认 REPEAT_MIN_COUNT（3）
+      min_recur - 「修好后又出现」多少次才算复发，默认 REPEAT_MIN_RECUR（4）
+
+    返回：按次数降序的列表，每项：
+      {
+        'building', 'room', 'category',
+        'count',        # 累计次数
+        'recur',        # 修好后又出现的次数
+        'recurring',    # recur 是否达到复发门槛
+        'first_time', 'last_time', 'span_days',
+        'record_ids',
+      }
+    """
+    import fault_category
+
+    min_count = REPEAT_MIN_COUNT if min_count is None else min_count
+    min_recur = REPEAT_MIN_RECUR if min_recur is None else min_recur
+
+    groups = {}
+    for r in load_records():
+        room = (r.get('教室') or '').strip()
+        if not room or room == '未填写':
+            continue
+        building = (r.get('教学楼') or '').strip()
+        cat = fault_category.classify(r)
+        groups.setdefault((building, room, cat), []).append(r)
+
+    out = []
+    for (building, room, cat), recs in groups.items():
+        if len(recs) < min_count:
+            continue
+
+        recs.sort(key=lambda x: (x.get('时间') or ''))
+
+        # 复发：上一条记录的当前状态是「已解决」，后面又出现了新记录
+        # （状态是当前值而非历史，所以这是"修好后又报"的近似判断）
+        recur = 0
+        for i in range(1, len(recs)):
+            if (recs[i - 1].get('状态') or '') == STATUS_RESOLVED:
+                recur += 1
+
+        times = [t for t in ((x.get('时间') or '') for x in recs) if t]
+        first_time = times[0] if times else ''
+        last_time = times[-1] if times else ''
+
+        out.append({
+            'building': building,
+            'room': room,
+            'category': cat,
+            'count': len(recs),
+            'recur': recur,
+            'recurring': recur >= min_recur,
+            'first_time': first_time,
+            'last_time': last_time,
+            'span_days': _days_between(first_time, last_time),
+            'record_ids': [x.get('记录编号') for x in recs],
+        })
+
+    out.sort(key=lambda x: (-x['count'], -x['recur'],
+                            x['building'], x['room']))
+    return out
+
+
 def register_faults(building, classroom, causes):
     """
     批量登记同一教室的多个损坏原因

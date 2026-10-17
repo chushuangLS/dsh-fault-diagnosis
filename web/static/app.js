@@ -1297,10 +1297,79 @@ async function loadStats() {
       }],
     });
 
+    // ---- 反复故障 ----
+    loadRepeatedFaults();
+
   } catch (err) {
     emptyEl.classList.remove('hidden');
     emptyEl.textContent = '读取失败：' + err.message;
   }
+}
+
+/**
+ * 反复故障：同一间教室、同一类故障累计 ≥3 次
+ *
+ * 为什么单独一块：
+ *   同一处反复坏，指向的往往不是配件而是根因 ——
+ *   反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳。
+ *   这类信息在逐条记录里看不出来，必须聚合。
+ */
+async function loadRepeatedFaults() {
+  const box = $('#repeat-list');
+  if (!box) return;
+
+  box.innerHTML = '<div class="repeat-empty">读取中…</div>';
+
+  let data;
+  try {
+    const res = await fetch('/api/analytics/repeated-faults');
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
+  } catch (err) {
+    box.innerHTML = `<div class="repeat-empty">读取失败：${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const hint = $('#repeat-hint');
+  if (hint) {
+    hint.textContent =
+      `同一教室同一原因累计 ≥${data.min_count} 次 · ` +
+      `复发指修好后又出现 ≥${data.min_recur} 次`;
+  }
+
+  if (!data.items.length) {
+    box.innerHTML = `
+      <div class="repeat-empty">
+        暂无反复故障
+        <span>同一间教室同一类故障累计 ${data.min_count} 次以上才会列在这里</span>
+      </div>`;
+    return;
+  }
+
+  box.innerHTML = data.items.map(x => {
+    const span = x.span_days > 0 ? `${x.span_days} 天` : '当天';
+    const recur = x.recurring
+      ? `<span class="repeat-recur">⚠ 复发 ${x.recur} 次</span>`
+      : (x.recur ? `<span class="repeat-recur-weak">复发 ${x.recur} 次</span>` : '');
+
+    return `
+      <div class="repeat-item" data-room="${escapeHtml(x.room)}"
+           data-building="${escapeHtml(x.building)}">
+        <span class="repeat-where">
+          ${escapeHtml(x.building)}-${escapeHtml(x.room)}
+        </span>
+        <span class="repeat-cat">${escapeHtml(x.category)}</span>
+        <span class="repeat-count"><b>${x.count}</b> 次 / ${span}</span>
+        ${recur}
+      </div>`;
+  }).join('');
+
+  // 点条目 → 打开该教室详情
+  box.querySelectorAll('.repeat-item').forEach(el => {
+    el.addEventListener('click', () => {
+      gotoRoomDetail(el.dataset.room);
+    });
+  });
 }
 
 // 窗口尺寸变化时重绘图表
