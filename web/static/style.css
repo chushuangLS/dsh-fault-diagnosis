@@ -1361,6 +1361,18 @@ main { flex: 1; overflow: hidden; position: relative; }
 .chart-tall { height: 280px; }
 .chart-wide { grid-column: 1 / -1; }
 
+/* 可点击的图表：鼠标变手型，并给标题加一行小字提示
+   看板上看到"某状态有 N 条"之后，下一步一定是去看具体记录 ——
+   让图表可以直接点，省掉"切页 → 再筛选"两步 */
+.chart-clickable { cursor: pointer; }
+
+.chart-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+
 
 /* ============================================================
    滚动条

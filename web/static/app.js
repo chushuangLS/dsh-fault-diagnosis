@@ -1212,6 +1212,16 @@ async function loadStats() {
       }],
     });
 
+    // 点击饼图某一段 → 跳到报修台账，并筛成该状态
+    //
+    // 先 off 再 on：loadStats 会被重复调用（切回看板、刷新数据），
+    // 而 ECharts 的 on 是累加的 —— 不先解绑的话，
+    // 点一次会跳好几次，行为看着像"卡了"。
+    chartStatus.off('click');
+    chartStatus.on('click', (p) => {
+      gotoRecordsWithStatus(p.name);
+    });
+
     // ---- 图表 2：教室排行（横向柱状图） ----
     const rooms = d.top_classrooms.map(x => x[0]).reverse();
     const counts = d.top_classrooms.map(x => x[1]).reverse();
@@ -1244,6 +1254,13 @@ async function loadStats() {
         },
         label: { show: true, position: 'right', color: '#8b98a5' },
       }],
+    });
+
+    // 点击柱子（某间教室）→ 打开该教室详情
+    // 同样先解绑，原因见上面饼图那段
+    chartClassroom.off('click');
+    chartClassroom.on('click', (p) => {
+      gotoRoomDetail(p.name);
     });
 
     // ---- 图表 3：故障趋势（折线图） ----
@@ -1305,7 +1322,58 @@ function openAdmin() {
   showListView();
   loadClassrooms();
 }
-function closeAdmin() {
+
+/* ============================================================
+   从数据看板跳到明细
+
+   看板上看到"某状态有 N 条"或"某间教室故障最多"之后，
+   下一步一定是要看具体是哪些记录/哪间教室。
+   让图表可以直接点，省掉"切页 → 再筛选"这两步。
+   ============================================================ */
+
+/**
+ * 跳到报修台账，并筛成指定状态
+ * 数据看板的「状态分布」饼图点击时调用
+ */
+function gotoRecordsWithStatus(status) {
+  if (!status) return;
+
+  // 先设好筛选条件再切页 —— switchView 内部会调 loadRecords()，
+  // 它按 currentStatus 拼接口参数
+  currentStatus = status;
+  switchView('records');
+
+  // 同步顶部筛选按钮的高亮（loadRecords 不负责这个）
+  document.querySelectorAll('.chip[data-status]').forEach(ch => {
+    ch.classList.toggle('active', ch.dataset.status === status);
+  });
+}
+
+/**
+ * 打开某间教室的详情
+ * 数据看板的「故障教室排行」柱状图点击时调用
+ *
+ * 图表里只有教室号（如 101），而打开详情需要「教学楼 + 教室」。
+ * 所以先查一遍教室台账把教学楼补出来；查不到就退化成打开管理弹窗，
+ * 让用户自己在列表里找，至少不会点了没反应。
+ */
+async function gotoRoomDetail(roomName) {
+  if (!roomName) return;
+
+  let hit = null;
+  try {
+    const res = await fetch('/api/classrooms');
+    const d = await res.json();
+    hit = (d.flat || []).find(x => x.name === roomName);
+  } catch { /* 取不到就退化处理 */ }
+
+  openAdmin();
+
+  if (!hit) return;   // 已经打开了管理弹窗，用户可自行从列表进入
+
+  // 等弹窗渲染一帧再切到详情视图，避免和 loadClassrooms 抢 DOM
+  setTimeout(() => openRoomDetail(hit.building, hit.name), 60);
+}function closeAdmin() {
   adminModal.classList.add('hidden');
   if (roomChart) { roomChart.dispose(); roomChart = null; }
 }
