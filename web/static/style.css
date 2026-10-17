@@ -1453,6 +1453,417 @@ main { flex: 1; overflow: hidden; position: relative; }
 
 
 /* ============================================================
+   课表与空余教室
+
+   这一页的核心问题是「现在哪间教室空着」，所以视觉上：
+     · 空闲教室用绿色，是被找的那一类
+     · 占用中放右边，只作对照
+     · 未导入课表的单独一栏、灰色 —— 它们不能算空闲
+   ============================================================ */
+
+.schedule-page { max-width: 1180px; }
+
+.dash-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* -------- 查询条 -------- */
+.sched-query {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.sched-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sched-field label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.sched-field select,
+.sched-field input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  min-width: 108px;
+}
+.sched-field select:focus,
+.sched-field input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+}
+.sched-seats-field input { min-width: 84px; }
+
+.sched-query .btn-ghost,
+.sched-query .btn-primary { height: 36px; }
+
+/* -------- 结果三栏 -------- */
+.sched-results {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.85fr;
+  gap: 16px;
+  align-items: start;
+}
+.sched-col {
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-height: 180px;
+}
+.sched-col-unknown { opacity: 0.82; }
+
+.sched-col-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.sch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sch-dot-free { background: #22c55e; }
+.sch-dot-busy { background: #f59e0b; }
+.sch-dot-unknown { background: #6b7280; }
+
+.sched-unknown-note {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.sched-unknown-note b { color: #9ca3af; }
+
+.sched-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 一间教室一个卡片，22 间就会把页面拉得很长。
+     限高 + 滚动，三栏高度才一致，一屏能看全。 */
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sched-room {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease),
+              transform 0.18s var(--ease);
+}
+.sched-room:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateX(2px);
+}
+
+.sched-free { border-left: 3px solid #22c55e; }
+.sched-busy { border-left: 3px solid #f59e0b; }
+.sched-unknown { border-left: 3px solid #4b5563; }
+
+.sched-room .sr-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.sr-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sr-seats {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.sr-course {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.sr-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.sched-none {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.sched-loading {
+  padding: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* -------- 导入弹窗 -------- */
+.modal-wide { max-width: 860px; }
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sched-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 34px 20px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 13px;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: all 0.2s var(--ease);
+}
+.sched-drop:hover,
+.sched-drop.drag {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(59, 130, 246, 0.06);
+  color: var(--text);
+}
+.sched-drop p { font-size: 13.5px; }
+.sched-drop span { font-size: 11.5px; color: var(--text-faint); }
+
+.sched-parse-result { margin-top: 16px; }
+.sched-parse-loading {
+  padding: 22px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.parse-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.2fr 1.5fr;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 15px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 9px;
+}
+.parse-bad {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.pr-file {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 500;
+  word-break: break-all;
+}
+.pr-room { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.pr-room b { color: var(--text); font-weight: 600; }
+.pr-meta { display: block; font-size: 11.5px; color: var(--text-faint); }
+.pr-error { font-size: 12px; color: #f87171; }
+
+.pr-map {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.pr-map-label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  width: 100%;
+}
+.pr-map select {
+  flex: 1;
+  min-width: 90px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+.sched-term-note {
+  margin-top: 14px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.07);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.sched-term-note b { color: var(--text); }
+.tn-hint { color: var(--text-faint); }
+
+/* -------- 作息设置弹窗 -------- */
+.sched-term-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sched-quick {
+  padding: 15px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.sched-quick-head {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.sched-quick-grid {
+  display: grid;
+  /* 5 个字段（3 个锚点 + 时长 + 课间）排一行；
+     128px 是能放下 "08:00" 时间控件的最小宽度 */
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sched-period-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pl-section-head {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.pl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+.pl-idx {
+  width: 62px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.pl-dash { color: var(--text-faint); font-size: 12px; }
+.pl-row input[type="time"] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------- 单间周课表 -------- */
+.sched-room-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  color: var(--text);
+  font-weight: 500;
+}
+.srh-meta { font-size: 12px; color: var(--text-faint); font-weight: 400; }
+
+.sched-grid-wrap { overflow-x: auto; }
+
+.sched-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.sched-grid th {
+  padding: 7px 6px;
+  color: var(--text-faint);
+  font-weight: 500;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.sched-grid th:first-child { text-align: right; padding-right: 10px; }
+.sched-grid td {
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: top;
+  height: 34px;
+}
+.sched-grid .cell-busy {
+  background: rgba(59, 130, 246, 0.1);
+}
+.cc-name {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.cc-meta {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.sched-room-empty {
+  padding: 34px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 2;
+}
+.sched-room-empty span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+
+/* ============================================================
    滚动条
    ============================================================ */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -2481,4 +2892,279 @@ select option:hover {
 @media (max-width: 560px) {
   .tf-grid { grid-template-columns: 1fr; }
   .task-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ============================================================
+   运行总览
+
+   这一页回答两个问题：
+     一、这间教室现在还能不能上课（不是"坏了几台"）
+     二、今天还有哪几节课要出问题
+
+   所以视觉上只有两种告警级别：
+     红色 = 影响上课，需要立刻处理
+     其余 = 正常，底部小灰字给损坏台数
+   做成三级告警的话，眼睛还是要分辨三层颜色，反而慢。
+   ============================================================ */
+
+.kpi-row-5 { grid-template-columns: repeat(5, 1fr); }
+
+.kpi-clickable { cursor: pointer; transition: border-color .2s var(--ease), transform .2s var(--ease); }
+.kpi-clickable:hover {
+  border-color: rgba(59, 130, 246, .45);
+  transform: translateY(-2px);
+}
+
+/* -------- 通用卡片 -------- */
+.ov-card {
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.ov-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+}
+
+.ov-head-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.ov-legend {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.ov-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block;
+}
+.ov-dot-bad { background: #ef4444; }
+.ov-dot-ok { background: #22c55e; margin-left: 8px; }
+
+/* -------- 今天受影响的课 -------- */
+.ov-warn-list { display: flex; flex-direction: column; gap: 10px; }
+
+.warn-item {
+  padding: 12px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, .03);
+  border-left: 3px solid var(--text-faint);
+}
+.warn-ongoing {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, .07);
+  border-color: rgba(239, 68, 68, .3);
+}
+.warn-upcoming { border-left-color: #f59e0b; }
+.warn-past { opacity: .6; }
+
+.warn-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.warn-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, .07);
+  color: var(--text-dim);
+}
+.warn-ongoing .warn-tag { background: rgba(239, 68, 68, .18); color: #fca5a5; }
+.warn-upcoming .warn-tag { background: rgba(245, 158, 11, .15); color: #fbbf24; }
+
+.warn-when {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.warn-room { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.warn-count { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
+
+.warn-course {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.warn-meta {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-left: 8px;
+}
+.warn-reason {
+  font-size: 12px;
+  color: #fca5a5;
+  margin-bottom: 3px;
+}
+.warn-suggest {
+  font-size: 12px;
+  color: #86efac;
+}
+
+.ov-more {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.ov-more:hover { color: var(--accent); }
+
+/* -------- 教室状态网格 -------- */
+.ov-grid { display: flex; flex-direction: column; gap: 18px; }
+
+.ov-building-head {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ov-building-count { color: var(--text-faint); font-size: 11.5px; }
+
+.ov-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: 10px;
+}
+
+.ov-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, .03);
+  cursor: pointer;
+  transition: background .18s var(--ease), border-color .18s var(--ease),
+              transform .18s var(--ease);
+}
+.ov-cell:hover {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(59, 130, 246, .4);
+  transform: translateY(-2px);
+}
+
+.ov-cell-bad {
+  border-color: rgba(239, 68, 68, .45);
+  background: rgba(239, 68, 68, .08);
+}
+
+.oc-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.oc-state { font-size: 11px; color: var(--text-faint); }
+.ov-cell-bad .oc-state { color: #fca5a5; font-weight: 600; }
+.oc-reason { font-size: 10.5px; color: #fca5a5; line-height: 1.5; }
+.oc-class {
+  font-size: 10.5px;
+  color: #93c5fd;
+  margin-top: 2px;
+}
+.oc-class:hover { text-decoration: underline; }
+.oc-idle { font-size: 10.5px; color: var(--text-faint); }
+.oc-note { font-size: 10px; color: var(--text-faint); }
+
+.ov-more-btn {
+  margin-top: 10px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ov-more-btn:hover { color: var(--accent); border-color: rgba(59, 130, 246, .4); }
+
+/* -------- 故障类型分布 -------- */
+.ov-cats { display: flex; flex-direction: column; gap: 9px; }
+
+.ov-cat {
+  display: grid;
+  grid-template-columns: 74px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ov-cat:hover .ov-cat-name { color: var(--text); }
+
+.ov-cat-name {
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ov-cat-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .05);
+  overflow: hidden;
+}
+.ov-cat-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+.ov-cat-count {
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.ov-cat-rest .ov-cat-bar i { background: #4b5563; }
+.ov-cat-rest { cursor: default; }
+
+.ov-none {
+  padding: 28px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+/* 趋势图占位：数据不足 3 天时不画线，但不能留一块空白 */
+.ov-trend-none {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--text-dim);
+}
+.ov-trend-none span { font-size: 11.5px; color: var(--text-faint); }
+
+@media (max-width: 1100px) {
+  .kpi-row-5 { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 720px) {
+  .kpi-row-5 { grid-template-columns: repeat(2, 1fr); }
 }

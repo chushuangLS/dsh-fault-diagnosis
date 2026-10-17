@@ -348,6 +348,7 @@ function switchView(view) {
 
   if (view === 'records') loadRecords();
   if (view === 'stats') loadStats();
+  if (view === 'schedule') loadSchedulePage();
   if (view === 'tasks') loadTasks();
   if (view === 'chat') {
     const inp = $('#input');
@@ -1158,162 +1159,365 @@ function initChart(el, existing) {
 async function loadStats() {
   const emptyEl = $('#stats-empty');
 
+  let d;
   try {
-    const res = await fetch('/api/statistics');
-    const d = await res.json();
-
-    if (d.error) {
-      emptyEl.classList.remove('hidden');
-      emptyEl.textContent = '读取失败：' + d.error;
-      return;
-    }
-
-    // 无数据时显示空状态
-    if (!d.total) {
-      emptyEl.classList.remove('hidden');
-      return;
-    }
-    emptyEl.classList.add('hidden');
-
-    // ---- KPI ----
-    $('#kpi-total').textContent = d.total;
-    $('#kpi-pending').textContent = d.by_status['未报修'] || 0;
-    $('#kpi-selffix').textContent = d.by_status['可自修'] || 0;
-    $('#kpi-reported').textContent = d.by_status['已报修'] || 0;
-    $('#kpi-resolved').textContent = d.by_status['已解决'] || 0;
-    $('#kpi-rate').textContent = d.resolve_rate + '%';
-    $('#dash-updated').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
-
-    // ---- 图表 1：状态分布（环形图） ----
-    chartStatus = initChart($('#chart-status'), chartStatus);
-    chartStatus.setOption({
-      ...CHART_BASE,
-      legend: {
-        orient: 'vertical',
-        right: 10,
-        top: 'center',
-        textStyle: { color: '#8b98a5' },
-        itemWidth: 12,
-        itemHeight: 12,
-      },
-      series: [{
-        type: 'pie',
-        radius: ['48%', '72%'],
-        center: ['38%', '50%'],
-        avoidLabelOverlap: true,
-        itemStyle: { borderColor: '#1a2129', borderWidth: 3 },
-        label: { show: false },
-        data: [
-          { value: d.by_status['未报修'] || 0, name: '未报修', itemStyle: { color: '#ef4444' } },
-          { value: d.by_status['可自修'] || 0, name: '可自修', itemStyle: { color: '#eab308' } },
-          { value: d.by_status['已报修'] || 0, name: '已报修', itemStyle: { color: '#f59e0b' } },
-          { value: d.by_status['已解决'] || 0, name: '已解决', itemStyle: { color: '#22c55e' } },
-        ].filter(x => x.value > 0),
-      }],
-    });
-
-    // 点击饼图某一段 → 跳到报修台账，并筛成该状态
-    //
-    // 先 off 再 on：loadStats 会被重复调用（切回看板、刷新数据），
-    // 而 ECharts 的 on 是累加的 —— 不先解绑的话，
-    // 点一次会跳好几次，行为看着像"卡了"。
-    chartStatus.off('click');
-    chartStatus.on('click', (p) => {
-      gotoRecordsWithStatus(p.name);
-    });
-
-    // ---- 图表 2：教室排行（横向柱状图） ----
-    const rooms = d.top_classrooms.map(x => x[0]).reverse();
-    const counts = d.top_classrooms.map(x => x[1]).reverse();
-
-    chartClassroom = initChart($('#chart-classroom'), chartClassroom);
-    chartClassroom.setOption({
-      ...CHART_BASE,
-      grid: { left: 12, right: 30, top: 20, bottom: 12, containLabel: true },
-      xAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: '#222b35' } },
-        axisLabel: { color: '#8b98a5' },
-      },
-      yAxis: {
-        type: 'category',
-        data: rooms,
-        axisLine: { lineStyle: { color: '#2d3843' } },
-        axisLabel: { color: '#8b98a5' },
-      },
-      series: [{
-        type: 'bar',
-        data: counts,
-        barWidth: '55%',
-        itemStyle: {
-          borderRadius: [0, 4, 4, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: '#3b82f6' },
-            { offset: 1, color: '#60a5fa' },
-          ]),
-        },
-        label: { show: true, position: 'right', color: '#8b98a5' },
-      }],
-    });
-
-    // 点击柱子（某间教室）→ 打开该教室详情
-    // 同样先解绑，原因见上面饼图那段
-    chartClassroom.off('click');
-    chartClassroom.on('click', (p) => {
-      gotoRoomDetail(p.name);
-    });
-
-    // ---- 图表 3：故障趋势（折线图） ----
-    chartTrend = initChart($('#chart-trend'), chartTrend);
-    chartTrend.setOption({
-      ...CHART_BASE,
-      grid: { left: 12, right: 24, top: 30, bottom: 12, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: d.dates,
-        boundaryGap: false,
-        axisLine: { lineStyle: { color: '#2d3843' } },
-        axisLabel: { color: '#8b98a5' },
-      },
-      yAxis: {
-        type: 'value',
-        minInterval: 1,
-        splitLine: { lineStyle: { color: '#222b35' } },
-        axisLabel: { color: '#8b98a5' },
-      },
-      series: [{
-        type: 'line',
-        data: d.date_counts,
-        smooth: true,
-        symbolSize: 7,
-        lineStyle: { width: 2.5, color: '#3b82f6' },
-        itemStyle: { color: '#3b82f6' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(59,130,246,0.35)' },
-            { offset: 1, color: 'rgba(59,130,246,0.02)' },
-          ]),
-        },
-      }],
-    });
-
-    // ---- 反复故障 ----
-    loadRepeatedFaults();
-
+    const res = await fetch('/api/overview');
+    d = await res.json();
+    if (d.error) throw new Error(d.error);
   } catch (err) {
     emptyEl.classList.remove('hidden');
     emptyEl.textContent = '读取失败：' + err.message;
+    return;
+  }
+
+  if (!d.rooms || !d.rooms.length) {
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  const kpi = d.kpi || {};
+
+  // ---- KPI ----
+  $('#kpi-rate').textContent = (kpi.available_rate ?? 100) + '%';
+  $('#kpi-broken').textContent = kpi.broken_pcs ?? 0;
+  $('#kpi-pending-records').textContent = kpi.pending_records ?? 0;
+  $('#kpi-repeat').textContent = kpi.repeat_count ?? 0;
+  $('#kpi-rooms').textContent = kpi.room_count ?? 0;
+
+  $('#dash-updated').textContent =
+    '第 ' + (d.week || '—') + ' 周 · '
+    + new Date().toLocaleTimeString('zh-CN');
+
+  renderOverviewWarnings(d.warnings || [], d);
+  renderOverviewGrid(d.rooms || []);
+  renderOverviewCategories(d.categories || []);
+  renderOverviewTrend(d.trend || {});
+
+  bindOverviewJumps();
+
+  // 反复故障单独取，逻辑在 loadRepeatedFaults 里
+  loadRepeatedFaults();
+}
+
+/**
+ * 今天受影响的课
+ *
+ * 每条 = 一节课（教室 × 节次 × 课程）。
+ * 分成「进行中 / 待开始 / 已结束」三态，进行中最急。
+ *
+ * 没有受影响时整块隐藏 —— 不显示"一切正常"，那只是占地方。
+ */
+function renderOverviewWarnings(list, d) {
+  const card = $('#ov-warn');
+  const box = $('#ov-warn-list');
+  const more = $('#ov-warn-more');
+  const note = $('#ov-warn-note');
+  if (!card || !box) return;
+
+  if (!list.length) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+
+  const ongoing = list.filter(x => x.state === 'ongoing').length;
+  note.textContent = `共 ${list.length} 节`
+    + (ongoing ? ` · 其中 ${ongoing} 节正在进行` : '');
+
+  const LIMIT = 5;
+  const shown = list.slice(0, LIMIT);
+
+  box.innerHTML = shown.map(x => {
+    const cls = x.state === 'ongoing' ? 'warn-ongoing'
+      : x.state === 'upcoming' ? 'warn-upcoming'
+      : x.state === 'past' ? 'warn-past' : 'warn-unknown';
+
+    const tag = x.state === 'ongoing' ? '进行中'
+      : x.state === 'upcoming' ? '待开始'
+      : x.state === 'past' ? '已结束' : '未知';
+
+    const timeText = x.time && x.time.start
+      ? `${x.time.start}–${x.time.end || ''}`
+      : '';
+
+    let when = '';
+    if (x.state === 'upcoming' && x.minutes_until != null) {
+      const h = Math.floor(x.minutes_until / 60);
+      const m = x.minutes_until % 60;
+      when = '距开始 ' + (h > 0 ? `${h} 小时 ${m} 分` : `${m} 分`);
+    }
+
+    const c = x.course || {};
+    const suggest = (x.suggest || []).length
+      ? x.suggest.map(s =>
+          `${escapeHtml(s.building)}-${escapeHtml(s.room)}（${s.seats} 座）`
+        ).join(' · ')
+      : '本时段无空闲教室';
+
+    return `
+      <div class="warn-item ${cls}">
+        <div class="warn-main">
+          <span class="warn-tag">${tag}</span>
+          <span class="warn-when">第 ${x.period} 节 ${escapeHtml(timeText)}</span>
+          <span class="warn-room">${escapeHtml(x.building)}-${escapeHtml(x.room)}</span>
+          ${when ? `<span class="warn-count">${when}</span>` : ''}
+        </div>
+        <div class="warn-course">
+          ${escapeHtml(c.name || '')}
+          <span class="warn-meta">${escapeHtml(c.teacher || '')} · ${c.students || 0} 人</span>
+        </div>
+        <div class="warn-reason">${escapeHtml((x.reasons || []).join('；'))}</div>
+        <div class="warn-suggest">→ 可调课到 ${suggest}</div>
+      </div>`;
+  }).join('');
+
+  if (list.length > LIMIT) {
+    more.classList.remove('hidden');
+    more.textContent = `展开今天全部 ${list.length} 节`;
+  } else {
+    more.classList.add('hidden');
   }
 }
 
 /**
- * 反复故障：同一间教室、同一类故障累计 ≥3 次
+ * 教室状态网格
  *
- * 为什么单独一块：
- *   同一处反复坏，指向的往往不是配件而是根因 ——
- *   反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳。
- *   这类信息在逐条记录里看不出来，必须聚合。
+ * 判定的是「还能不能上课」，不是「坏了几台」——
+ * 78 人的课坏 2 台照样能上；教师机坏了却一台不缺也上不了。
+ * 坏几台放在底部小灰字里，不抢视线。
  */
+function renderOverviewGrid(rooms) {
+  const box = $('#ov-grid');
+  if (!box) return;
+
+  // 按教学楼分组，保持原顺序
+  const byBuilding = new Map();
+  rooms.forEach(r => {
+    if (!byBuilding.has(r.building)) byBuilding.set(r.building, []);
+    byBuilding.get(r.building).push(r);
+  });
+
+  const LIMIT = 8;
+
+  box.innerHTML = [...byBuilding.entries()].map(([building, list]) => {
+    // 折叠时优先显示「影响上课」的，其次有损坏的，最后正常的
+    const rank = (x) => (x.impact ? 0 : (x.broken || x.facility) ? 1 : 2);
+    const sorted = [...list].sort((a, b) => rank(a) - rank(b));
+    const shown = sorted.slice(0, LIMIT);
+    const rest = sorted.length - shown.length;
+
+    const cells = shown.map(r => {
+      const classes = ['ov-cell'];
+      if (r.impact) classes.push('ov-cell-bad');
+      else classes.push('ov-cell-ok');
+
+      // 底部小灰字：坏几台 / 设施故障 / 未导课表
+      const notes = [];
+      if (r.broken) notes.push(`坏 ${r.broken} 台`);
+      if (r.facility) notes.push('设施故障');
+      if (!r.has_schedule) notes.push('无课表');
+
+      // 这节课的状态
+      let classLine;
+      if (r.class) {
+        classLine = `<span class="oc-class">课中 · ${r.class.students || 0} 人</span>`;
+      } else if (!r.has_schedule) {
+        classLine = '';
+      } else {
+        classLine = '<span class="oc-idle">没课</span>';
+      }
+
+      const reason = r.impact
+        ? `<span class="oc-reason">${escapeHtml((r.reasons || []).join('；'))}</span>`
+        : '';
+
+      return `
+        <div class="${classes.join(' ')}"
+             data-building="${escapeHtml(r.building)}"
+             data-room="${escapeHtml(r.room)}">
+          <span class="oc-name">${escapeHtml(r.room)}</span>
+          <span class="oc-state">${r.impact ? '⚠ 影响上课' : '● 正常'}</span>
+          ${reason}
+          ${classLine}
+          ${notes.length ? `<span class="oc-note">${notes.join(' · ')}</span>` : ''}
+        </div>`;
+    }).join('');
+
+    const more = rest > 0
+      ? `<button class="ov-more-btn" data-expand="${escapeHtml(building)}">
+           展开全部 ${sorted.length} 间
+         </button>`
+      : '';
+
+    return `
+      <div class="ov-building">
+        <div class="ov-building-head">
+          ${escapeHtml(building)}
+          <span class="ov-building-count">${list.length} 间</span>
+        </div>
+        <div class="ov-cells">${cells}</div>
+        ${more}
+      </div>`;
+  }).join('');
+
+  // 点格子 → 教室详情（故障视角）
+  box.querySelectorAll('.ov-cell').forEach(el => {
+    el.addEventListener('click', (e) => {
+      // 点"课中"那一小块 → 看课表，不是看故障
+      if (e.target.closest('.oc-class')) {
+        openRoomSchedule(el.dataset.building, el.dataset.room);
+        return;
+      }
+      gotoRoomDetail(el.dataset.room);
+    });
+  });
+
+  // 展开：把该楼栋全部教室显示出来
+  box.querySelectorAll('.ov-more-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const b = btn.dataset.expand;
+      const all = rooms.filter(r => r.building === b);
+      renderOverviewGrid([
+        ...rooms.filter(r => r.building !== b),
+        ...all,
+      ]);
+    });
+  });
+}
+
+/**
+ * 故障类型分布
+ *
+ * 用 CSS 横条而不是图表库 —— 这里只有几个分类，
+ * 用 ECharts 反而更重，而且要处理 resize。
+ */
+function renderOverviewCategories(items) {
+  const box = $('#ov-cats');
+  if (!box) return;
+
+  if (!items.length) {
+    box.innerHTML = '<div class="ov-none">暂无数据</div>';
+    return;
+  }
+
+  // 显示前 6 类，其余合并成「其他 N 类」
+  const TOP = 6;
+  const top = items.slice(0, TOP);
+  const rest = items.slice(TOP);
+  const restCount = rest.reduce((s, x) => s + x.count, 0);
+
+  const max = Math.max(...top.map(x => x.count), 1);
+
+  const row = (name, count, isRest) => `
+    <div class="ov-cat ${isRest ? 'ov-cat-rest' : ''}" data-cat="${escapeHtml(name)}">
+      <span class="ov-cat-name">${escapeHtml(name)}</span>
+      <span class="ov-cat-bar">
+        <i style="width:${Math.round(count / max * 100)}%"></i>
+      </span>
+      <span class="ov-cat-count">${count}</span>
+    </div>`;
+
+  box.innerHTML = top.map(x => row(x.category, x.count, false)).join('')
+    + (rest.length
+      ? row(`其他 ${rest.length} 类`, restCount, true)
+      : '');
+
+  // 点某一类 → 跳报修记录（按该类筛选需要后端支持，这里先跳到台账）
+  box.querySelectorAll('.ov-cat').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.classList.contains('ov-cat-rest')) return;
+      switchView('records');
+    });
+  });
+}
+
+/** 近 14 天趋势：新增 vs 解决 */
+function renderOverviewTrend(t) {
+  const el = $('#chart-trend');
+  if (!el) return;
+
+  // 数据太少时不画假线 —— 只有 2 天数据画出来的折线没有意义，
+  // 看起来还会像"故障在骤降"，是误导。
+  // 但也不能留一块空白，所以给一句说明。
+  if ((t.active_days || 0) < 3) {
+    if (chartTrend) { chartTrend.dispose(); chartTrend = null; }
+    el.innerHTML = `
+      <div class="ov-none ov-trend-none">
+        数据积累中
+        <span>已有 ${t.active_days || 0} 天记录，满 3 天才显示趋势</span>
+      </div>`;
+    return;
+  }
+
+  // 之前若有占位文字，先清掉再初始化图表
+  if (el.querySelector('.ov-none')) el.innerHTML = '';
+  chartTrend = initChart(el, chartTrend);
+
+  chartTrend.setOption({
+    ...CHART_BASE,
+    tooltip: { trigger: 'axis' },
+    legend: {
+      right: 6, top: 0,
+      textStyle: { color: '#8b98a5' },
+      itemWidth: 12, itemHeight: 12,
+    },
+    grid: { left: 12, right: 18, top: 34, bottom: 10, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: (t.dates || []).map(x => x.slice(5)),
+      boundaryGap: false,
+      axisLine: { lineStyle: { color: '#2d3843' } },
+      axisLabel: { color: '#8b98a5', fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      splitLine: { lineStyle: { color: '#222b35' } },
+      axisLabel: { color: '#8b98a5', fontSize: 10 },
+    },
+    series: [
+      {
+        name: '新增',
+        type: 'line',
+        data: t.new || [],
+        smooth: true,
+        symbolSize: 6,
+        lineStyle: { width: 2.4, color: '#3b82f6' },
+        itemStyle: { color: '#3b82f6' },
+      },
+      {
+        name: '解决',
+        type: 'line',
+        data: t.resolved || [],
+        smooth: true,
+        symbolSize: 6,
+        lineStyle: { width: 2.4, color: '#22c55e' },
+        itemStyle: { color: '#22c55e' },
+      },
+    ],
+  }, true);
+}
+
+/** KPI 与图表卡片的点击跳转 */
+function bindOverviewJumps() {
+  document.querySelectorAll('[data-ov-go]').forEach(el => {
+    if (el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.addEventListener('click', () => {
+      const go = el.dataset.ovGo;
+      if (go === 'rooms') {
+        openAdmin();
+      } else if (go === 'pending') {
+        gotoRecordsWithStatus('未报修');
+      } else if (go === 'repeat') {
+        const card = $('#repeat-list');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+}
+
 async function loadRepeatedFaults() {
   const box = $('#repeat-list');
   if (!box) return;
@@ -2438,8 +2642,741 @@ async function initTaskForm() {
 }
 
 /* ============================================================
+   课表与空余教室
+
+   产品的核心问题只有一个：**现在这个时间，哪间教室空着？**
+   教室突然不能用了，学生站在门口，课马上要开始 ——
+   这时要的不是"这台怎么修"，而是"这节课去哪上"。
+
+   所以这一页不是"课表管理工具"，而是应急调课时的查询工具：
+   打开就自动按当前时间查一次，不用先点三下。
+   ============================================================ */
+
+const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四',
+                  '星期五', '星期六', '星期日'];
+const PERIOD_SECTIONS = [
+  { name: '上午', periods: [1, 2, 3, 4] },
+  { name: '下午', periods: [5, 6, 7, 8] },
+  { name: '晚上', periods: [9, 10, 11, 12] },
+];
+
+let schedInited = false;      // 下拉框是否已经填过选项
+let schedSummary = null;      // 最近一次 summary
+let schedPeriods = {};        // 已保存的作息时间
+let schedTerm = {};           // 学期信息
+
+/** 节次的可读标签，带上时间（有配置时） */
+function periodLabel(p) {
+  const t = schedPeriods[String(p)];
+  if (t && t.start && t.end) return `第 ${p} 节 ${t.start}–${t.end}`;
+  return `第 ${p} 节`;
+}
+
+/** 把下拉框填好（只填一次） */
+function initScheduleControls() {
+  if (schedInited) return;
+  schedInited = true;
+
+  $('#sched-day').innerHTML = WEEKDAYS.map((w, i) =>
+    `<option value="${i + 1}">${w}</option>`).join('');
+
+  $('#sched-period').innerHTML = PERIOD_SECTIONS.map(s =>
+    `<optgroup label="${s.name}">` +
+    s.periods.map(p => `<option value="${p}">第 ${p} 节</option>`).join('') +
+    '</optgroup>'
+  ).join('');
+
+  $('#sched-min-seats').addEventListener('change', () => { doScheduleQuery(); });
+  $('#sched-query-btn').addEventListener('click', () => doScheduleQuery());
+  $('#sched-now-btn').addEventListener('click', () => {
+    fillNow();
+    doScheduleQuery();
+  });
+
+  $('#sched-import-btn').addEventListener('click', openImportModal);
+  $('#sched-period-btn').addEventListener('click', openPeriodModal);
+
+  initImportModal();
+  initPeriodModal();
+  initRoomModal();
+}
+
+/**
+ * 填充「周次」下拉
+ *
+ * 选项数量取决于学期总周数，而这个值要等接口返回才知道，
+ * 所以不能放在 initScheduleControls 里一次填死。
+ * （漏了这一步的话，周次下拉是空的，查询参数 week 会变成 NaN，
+ *   接口直接 400，页面上看起来就是"点了没反应"。）
+ */
+function fillWeekOptions() {
+  const sel = $('#sched-week');
+  if (!sel) return;
+
+  const weeks = Math.max(parseInt(schedTerm.weeks, 10) || 20, 1);
+  const current = parseInt(sel.value, 10);
+
+  sel.innerHTML = Array.from({ length: weeks }, (_, i) =>
+    `<option value="${i + 1}">第 ${i + 1} 周</option>`).join('');
+
+  // 尽量保留用户已经选过的周次
+  if (current >= 1 && current <= weeks) {
+    sel.value = String(current);
+  }
+}
+
+/** 按当前时间填好三个下拉框 */
+function fillNow() {
+  const now = new Date();
+  // JS 的 getDay()：周日是 0，这里要 1-7（周一到周日）
+  const day = now.getDay() === 0 ? 7 : now.getDay();
+  $('#sched-day').value = String(day);
+
+  if (schedSummary && schedSummary.week) {
+    const w = Math.min(Math.max(schedSummary.week, 1),
+                       Math.max(schedTerm.weeks || 20, 1));
+    $('#sched-week').value = String(w);
+  }
+  if (schedSummary && schedSummary.period) {
+    $('#sched-period').value = String(schedSummary.period);
+  }
+}
+
+/** 进入课表页 */
+async function loadSchedulePage() {
+  initScheduleControls();
+
+  try {
+    const res = await fetch('/api/schedule/summary');
+    schedSummary = await res.json();
+  } catch {
+    schedSummary = null;
+  }
+
+  // 作息时间单独取一份，用来在下拉框里显示具体时间
+  try {
+    const res = await fetch('/api/schedule/periods');
+    const d = await res.json();
+    schedPeriods = d.periods || {};
+    schedTerm = d.term || {};
+  } catch {
+    schedPeriods = {};
+    schedTerm = {};
+  }
+
+  renderTermLine();
+  fillWeekOptions();
+
+  const empty = $('#sched-empty');
+  const results = $('#sched-results');
+  const hasAny = schedSummary && schedSummary.rooms > 0;
+
+  if (!hasAny) {
+    empty.classList.remove('hidden');
+    results.innerHTML = '';
+  } else {
+    empty.classList.add('hidden');
+    fillNow();
+    doScheduleQuery();
+  }
+}
+
+/** 顶部那行学期信息 */
+function renderTermLine() {
+  const el = $('#sched-term-line');
+  if (!el) return;
+
+  const start = schedTerm.start || '';
+  const weeks = schedTerm.weeks || 0;
+  const week = (schedSummary && schedSummary.week) || 0;
+  const rooms = (schedSummary && schedSummary.rooms) || 0;
+  const courses = (schedSummary && schedSummary.course_count) || 0;
+
+  if (!start) {
+    el.textContent = '还没配置学期';
+    return;
+  }
+
+  let weekText;
+  if (week === 0) {
+    weekText = `还没开学（${start} 开始）`;
+  } else if (weeks && week > weeks) {
+    // 放假期间也要能查询 —— 那会儿教室全空，查了反而有用
+    weekText = `第 ${week} 周（已超出本学期 ${weeks} 周）`;
+  } else {
+    weekText = `第 ${week} 周`;
+  }
+
+  el.textContent = `${start} 起 ${weeks} 周 · ${weekText} · `
+    + `已导入 ${rooms} 间 / ${courses} 条课程`;
+}
+
+/** 执行查询 */
+async function doScheduleQuery() {
+  const box = $('#sched-results');
+  if (!box) return;
+
+  const day = parseInt($('#sched-day').value, 10);
+  const period = parseInt($('#sched-period').value, 10);
+  const week = parseInt($('#sched-week').value, 10);
+  const minSeats = parseInt($('#sched-min-seats').value, 10) || 0;
+
+  const params = new URLSearchParams({
+    day, period, week, min_seats: minSeats,
+  });
+
+  box.innerHTML = '<div class="sched-loading">查询中…</div>';
+
+  let d;
+  try {
+    const res = await fetch('/api/schedule/query?' + params);
+    d = await res.json();
+    if (d.error) throw new Error(d.error);
+  } catch (err) {
+    box.innerHTML = `<div class="sched-loading">查询失败：${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  renderScheduleResults(d, minSeats);
+}
+
+/** 渲染三栏结果 */
+function renderScheduleResults(d, minSeats) {
+  const box = $('#sched-results');
+
+  const free = d.free || [];
+  const busy = d.busy || [];
+  const unknown = d.no_schedule || [];
+
+  const seatsNote = minSeats > 0 ? ` ≥${minSeats} 座` : '';
+
+  const freeHtml = free.length
+    ? free.map(r => `
+        <div class="sched-room sched-free" data-building="${escapeHtml(r.building)}"
+             data-room="${escapeHtml(r.room)}">
+          <span class="sr-name">${escapeHtml(r.room)}</span>
+          <span class="sr-seats">${r.seats || 0} 座</span>
+        </div>`).join('')
+    : `<div class="sched-none">没有符合条件的空闲教室${seatsNote}</div>`;
+
+  const busyHtml = busy.length
+    ? busy.map(r => {
+        const c = r.course || {};
+        return `
+        <div class="sched-room sched-busy" data-building="${escapeHtml(r.building)}"
+             data-room="${escapeHtml(r.room)}">
+          <div class="sr-top">
+            <span class="sr-name">${escapeHtml(r.room)}</span>
+            <span class="sr-seats">${r.seats || 0} 座</span>
+          </div>
+          <div class="sr-course">${escapeHtml(c.name || '')}</div>
+          <div class="sr-meta">
+            ${escapeHtml(c.teacher || '')} · ${c.students || 0} 人
+            · ${c.week_start}-${c.week_end} 周
+          </div>
+        </div>`;
+      }).join('')
+    : `<div class="sched-none">这一节没有教室在上课</div>`;
+
+  box.innerHTML = `
+    <div class="sched-col">
+      <div class="sched-col-head">
+        <span class="sch-dot sch-dot-free"></span>
+        空闲 ${free.length} 间${seatsNote}
+      </div>
+      <div class="sched-room-list">${freeHtml}</div>
+    </div>
+    <div class="sched-col">
+      <div class="sched-col-head">
+        <span class="sch-dot sch-dot-busy"></span>
+        占用中 ${busy.length} 间
+      </div>
+      <div class="sched-room-list">${busyHtml}</div>
+    </div>
+    <div class="sched-col sched-col-unknown">
+      <div class="sched-col-head">
+        <span class="sch-dot sch-dot-unknown"></span>
+        未导入课表 ${unknown.length} 间
+      </div>
+      <div class="sched-unknown-note">
+        这些教室没导入课表，<b>无法判断有没有课</b>，所以不列进空闲。
+      </div>
+      <div class="sched-room-list">
+        ${unknown.length
+          ? unknown.map(r => `
+              <div class="sched-room sched-unknown"
+                   data-building="${escapeHtml(r.building)}"
+                   data-room="${escapeHtml(r.room)}">
+                <span class="sr-name">${escapeHtml(r.room)}</span>
+                <span class="sr-seats">${r.seats || 0} 座</span>
+              </div>`).join('')
+          : '<div class="sched-none">全部教室都已导入课表</div>'}
+      </div>
+    </div>`;
+
+  // 点任意教室 → 看它本周的课表
+  box.querySelectorAll('.sched-room').forEach(el => {
+    el.addEventListener('click', () => {
+      openRoomSchedule(el.dataset.building, el.dataset.room);
+    });
+  });
+}
+
+/* -------- 导入课表 -------- */
+
+let parsedFiles = [];      // 最近一次解析结果
+let classroomsFlat = [];   // 系统里的教室列表
+
+function initImportModal() {
+  const modal = $('#sched-import-modal');
+  const input = $('#sched-files');
+  const drop = $('#sched-drop');
+
+  if (!modal) return;
+
+  $('#sched-import-close').addEventListener('click', closeImportModal);
+  $('#sched-import-cancel').addEventListener('click', closeImportModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeImportModal();
+  });
+
+  drop.addEventListener('click', () => input.click());
+
+  // 拖拽
+  drop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    drop.classList.add('drag');
+  });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('drag');
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+
+  input.addEventListener('change', () => {
+    if (input.files.length) handleFiles(input.files);
+    input.value = '';   // 允许重复选同一个文件
+  });
+
+  $('#sched-import-apply').addEventListener('click', applyImport);
+}
+
+function openImportModal() {
+  parsedFiles = [];
+  $('#sched-parse-result').classList.add('hidden');
+  $('#sched-parse-result').innerHTML = '';
+  $('#sched-term-note').classList.add('hidden');
+  $('#sched-import-apply').disabled = true;
+  $('#sched-import-apply').textContent = '导入';
+  $('#sched-import-modal').classList.remove('hidden');
+}
+
+function closeImportModal() {
+  $('#sched-import-modal').classList.add('hidden');
+}
+
+/** 上传并解析（不落盘） */
+async function handleFiles(fileList) {
+  const box = $('#sched-parse-result');
+  const applyBtn = $('#sched-import-apply');
+
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="sched-parse-loading">解析中…</div>';
+  applyBtn.disabled = true;
+
+  const fd = new FormData();
+  [...fileList].forEach(f => fd.append('files', f));
+
+  let d;
+  try {
+    const res = await fetch('/api/schedule/parse', { method: 'POST', body: fd });
+    d = await res.json();
+    if (!d.ok) throw new Error(d.message || '解析失败');
+  } catch (err) {
+    box.innerHTML = `<div class="sched-parse-loading">解析失败：${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  parsedFiles = d.files || [];
+
+  // 教室清单（用于映射下拉）
+  try {
+    const res = await fetch('/api/classrooms');
+    const cd = await res.json();
+    classroomsFlat = (cd.flat || []);
+  } catch {
+    classroomsFlat = [];
+  }
+
+  renderParseResult();
+
+  if (d.term) {
+    const note = $('#sched-term-note');
+    note.classList.remove('hidden');
+    note.innerHTML =
+      `识别到学期：<b>${escapeHtml(d.term.start || '')}</b> 起，`
+      + `共 <b>${d.term.weeks || 0}</b> 周`
+      + `<span class="tn-hint">（导入后可在「作息设置」里调整）</span>`;
+  }
+}
+
+/** 渲染解析结果，每行带一个教室映射下拉 */
+function renderParseResult() {
+  const box = $('#sched-parse-result');
+  const applyBtn = $('#sched-import-apply');
+
+  const buildings = [...new Set(classroomsFlat.map(r => r.building))];
+
+  const rows = parsedFiles.map((f, i) => {
+    if (!f.ok) {
+      return `
+        <div class="parse-row parse-bad">
+          <div class="pr-file">${escapeHtml(f.filename)}</div>
+          <div class="pr-error">✗ ${escapeHtml(f.error || '解析失败')}</div>
+        </div>`;
+    }
+
+    const guess = f.guess || {};
+    const buildingOpts = buildings.map(b =>
+      `<option value="${escapeHtml(b)}"${b === guess.building ? ' selected' : ''}>`
+      + `${escapeHtml(b)}</option>`).join('');
+
+    return `
+      <div class="parse-row" data-idx="${i}">
+        <div class="pr-file">${escapeHtml(f.filename)}</div>
+        <div class="pr-room">
+          课表教室 <b>${escapeHtml(f.room_label || '（未识别）')}</b>
+          <span class="pr-meta">
+            座位 ${f.seats || '未知'} · ${f.course_count} 条课程
+          </span>
+        </div>
+        <div class="pr-map">
+          <span class="pr-map-label">对应系统教室</span>
+          <select class="pr-building">
+            <option value="">请选择</option>${buildingOpts}
+          </select>
+          <select class="pr-room-name"></select>
+        </div>
+      </div>`;
+  }).join('');
+
+  box.innerHTML = rows;
+
+  // 教学楼 → 教室 联动
+  box.querySelectorAll('.parse-row[data-idx]').forEach(row => {
+    const f = parsedFiles[parseInt(row.dataset.idx, 10)];
+    const bSel = row.querySelector('.pr-building');
+    const rSel = row.querySelector('.pr-room-name');
+    const guess = (f && f.guess) || {};
+
+    const fillRooms = () => {
+      const b = bSel.value;
+      const rooms = classroomsFlat.filter(x => x.building === b);
+      rSel.innerHTML = '<option value="">请选择</option>' + rooms.map(x =>
+        `<option value="${escapeHtml(x.name)}"`
+        + `${(b === guess.building && x.name === guess.room) ? ' selected' : ''}>`
+        + `${escapeHtml(x.name)}（${x.total || 0} 台）</option>`).join('');
+      if (b === guess.building && guess.room) rSel.value = guess.room;
+      updateApplyState();
+    };
+
+    bSel.addEventListener('change', fillRooms);
+    rSel.addEventListener('change', updateApplyState);
+    fillRooms();
+  });
+
+  updateApplyState();
+}
+
+/** 所有解析成功的行都选好映射，才能点导入 */
+function updateApplyState() {
+  const box = $('#sched-parse-result');
+  const btn = $('#sched-import-apply');
+
+  const rows = [...box.querySelectorAll('.parse-row[data-idx]')];
+  const okCount = parsedFiles.filter(f => f.ok).length;
+
+  const allMapped = rows.length > 0 && rows.every(row => {
+    const b = row.querySelector('.pr-building');
+    const r = row.querySelector('.pr-room-name');
+    return b && b.value && r && r.value;
+  });
+
+  btn.disabled = !allMapped;
+  btn.textContent = allMapped
+    ? `导入 ${okCount} 个`
+    : '请先选好对应教室';
+}
+
+/** 确认后落盘 */
+async function applyImport() {
+  const box = $('#sched-parse-result');
+  const btn = $('#sched-import-apply');
+
+  const items = [];
+  box.querySelectorAll('.parse-row[data-idx]').forEach(row => {
+    const f = parsedFiles[parseInt(row.dataset.idx, 10)];
+    if (!f || !f.ok) return;
+    items.push({
+      filename: f.filename,
+      building: row.querySelector('.pr-building').value,
+      room: row.querySelector('.pr-room-name').value,
+    });
+  });
+
+  if (!items.length) return;
+
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+
+  let d;
+  try {
+    const res = await fetch('/api/schedule/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    d = await res.json();
+  } catch (err) {
+    alert('导入失败：' + err.message);
+    btn.disabled = false;
+    btn.textContent = '重试';
+    return;
+  }
+
+  if (d.failed && d.failed.length) {
+    alert('部分导入失败：\n' + d.failed.map(x =>
+      `${x.filename}：${x.error}`).join('\n'));
+  }
+
+  if (d.done && d.done.length) {
+    closeImportModal();
+    loadSchedulePage();
+  } else {
+    btn.disabled = false;
+    btn.textContent = '导入';
+  }
+}
+
+/* -------- 作息设置 -------- */
+
+function initPeriodModal() {
+  const modal = $('#sched-period-modal');
+  if (!modal) return;
+
+  $('#sched-period-close').addEventListener('click', closePeriodModal);
+  $('#sched-period-cancel').addEventListener('click', closePeriodModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closePeriodModal();
+  });
+
+  $('#sched-generate').addEventListener('click', generatePeriods);
+  $('#sched-period-save').addEventListener('click', savePeriods);
+}
+
+async function openPeriodModal() {
+  try {
+    const res = await fetch('/api/schedule/periods');
+    const d = await res.json();
+    schedPeriods = d.periods || {};
+    schedTerm = d.term || {};
+  } catch { /* 用空值 */ }
+
+  $('#sched-term-start').value = schedTerm.start || '';
+  $('#sched-term-weeks').value = schedTerm.weeks || 20;
+
+  renderPeriodInputs(schedPeriods);
+  $('#sched-period-modal').classList.remove('hidden');
+}
+
+function closePeriodModal() {
+  $('#sched-period-modal').classList.add('hidden');
+}
+
+/** 把 periods 对象渲染成 12 行时间输入 */
+function renderPeriodInputs(periods) {
+  const box = $('#sched-period-list');
+
+  box.innerHTML = PERIOD_SECTIONS.map(sec => `
+    <div class="pl-section">
+      <div class="pl-section-head">${sec.name}</div>
+      ${sec.periods.map(p => {
+        const t = periods[String(p)] || {};
+        return `
+          <div class="pl-row" data-period="${p}">
+            <span class="pl-idx">第 ${p} 节</span>
+            <input type="time" class="pl-start" value="${escapeHtml(t.start || '')}">
+            <span class="pl-dash">–</span>
+            <input type="time" class="pl-end" value="${escapeHtml(t.end || '')}">
+          </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+/** 按 3 个锚点 + 时长 + 课间，生成 12 节时间 */
+function generatePeriods() {
+  const duration = parseInt($('#sched-duration').value, 10) || 45;
+  const gap = parseInt($('#sched-break').value, 10) || 0;
+
+  const anchors = {
+    1: $('#sched-anchor-am').value || '08:00',
+    5: $('#sched-anchor-pm').value || '14:00',
+    9: $('#sched-anchor-eve').value || '19:00',
+  };
+
+  const toMin = (s) => {
+    const [h, m] = s.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const toHHMM = (n) => {
+    const h = Math.floor(n / 60) % 24;
+    const m = n % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  };
+
+  const periods = {};
+  PERIOD_SECTIONS.forEach(sec => {
+    const start = toMin(anchors[sec.periods[0]]);
+    sec.periods.forEach((p, i) => {
+      const s = start + i * (duration + gap);
+      periods[String(p)] = { start: toHHMM(s), end: toHHMM(s + duration) };
+    });
+  });
+
+  renderPeriodInputs(periods);
+}
+
+/** 保存作息 */
+async function savePeriods() {
+  const btn = $('#sched-period-save');
+
+  const periods = {};
+  $('#sched-period-list').querySelectorAll('.pl-row').forEach(row => {
+    const p = row.dataset.period;
+    const s = row.querySelector('.pl-start').value;
+    const e = row.querySelector('.pl-end').value;
+    if (s && e) periods[p] = { start: s, end: e };
+  });
+
+  if (!Object.keys(periods).length) {
+    alert('请先生成或填写节次时间');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+
+  try {
+    const res = await fetch('/api/schedule/periods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        term: {
+          start: $('#sched-term-start').value,
+          weeks: parseInt($('#sched-term-weeks').value, 10) || 20,
+        },
+        periods,
+      }),
+    });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.message || '保存失败');
+
+    closePeriodModal();
+    loadSchedulePage();
+  } catch (err) {
+    alert('保存失败：' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存';
+  }
+}
+
+/* -------- 单间教室周课表 -------- */
+
+function initRoomModal() {
+  const modal = $('#sched-room-modal');
+  if (!modal) return;
+
+  $('#sched-room-close').addEventListener('click', () =>
+    modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  });
+}
+
+async function openRoomSchedule(building, room) {
+  const modal = $('#sched-room-modal');
+  const body = $('#sched-room-body');
+
+  $('#sched-room-title').textContent = `${building}-${room} 本周课表`;
+  body.innerHTML = '<div class="sched-loading">读取中…</div>';
+  modal.classList.remove('hidden');
+
+  const params = new URLSearchParams({ building, room });
+
+  let d;
+  try {
+    const res = await fetch('/api/schedule/room?' + params);
+    d = await res.json();
+    if (!d.ok) throw new Error(d.message || '读取失败');
+  } catch (err) {
+    body.innerHTML = `<div class="sched-room-empty">
+        这间教室还没有导入课表
+        <span>导入后就能看到它一周的安排了</span>
+      </div>`;
+    return;
+  }
+
+  // 当前周：优先用学期信息算
+  const week = (schedSummary && schedSummary.week) || 1;
+
+  const byCell = {};
+  (d.courses || []).forEach(c => {
+    // 只显示当前周有课的（同一格可能有两门不同周次的课）
+    if (week < c.week_start || week > c.week_end) return;
+    const key = c.day + '-' + c.period_start;
+    byCell[key] = byCell[key] || [];
+    byCell[key].push(c);
+  });
+
+  const rows = [];
+  for (let p = 1; p <= 12; p++) {
+    const cells = [];
+    for (let day = 1; day <= 7; day++) {
+      const list = byCell[day + '-' + p];
+      cells.push(list && list.length
+        ? `<td class="cell-busy">${list.map(c =>
+            `<div class="cc-name">${escapeHtml(c.name)}</div>
+             <div class="cc-meta">${escapeHtml(c.teacher || '')}
+             · ${c.students || 0}人</div>`).join('')}</td>`
+        : '<td></td>');
+    }
+    rows.push(`<tr><th>第 ${p} 节</th>${cells.join('')}</tr>`);
+  }
+
+  const weekNote = week ? `第 ${week} 周` : '当前周';
+
+  body.innerHTML = `
+    <div class="sched-room-head">
+      <span>${escapeHtml(d.label || '')}</span>
+      <span class="srh-meta">座位 ${d.seats || 0} · ${weekNote}</span>
+    </div>
+    <div class="sched-grid-wrap">
+      <table class="sched-grid">
+        <thead>
+          <tr><th></th>${WEEKDAYS.map(w => `<th>${w.slice(-1)}</th>`).join('')}</tr>
+        </thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+/* ============================================================
    初始化
    ============================================================ */
 loadLandingStats();
 loadRoomPicker();
 initTaskForm();
+
+

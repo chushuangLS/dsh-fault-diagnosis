@@ -188,6 +188,23 @@
     <circle cx="9" cy="18" r="1.4" fill="currentColor"/>
     <circle cx="15" cy="18" r="1.4" fill="currentColor"/>
   </symbol>
+
+  <symbol id="i-calendar" viewBox="0 0 24 24">
+    <rect x="3.5" y="5" width="17" height="15" rx="2.5"
+          fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-refresh" viewBox="0 0 24 24">
+    <path d="M20 12a8 8 0 1 1-2.3-5.6"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+    <path d="M20 4v4.5h-4.5"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
 </svg>
 
 <!-- ============================================================
@@ -345,69 +362,86 @@
       </div>
     </section>
 
-    <!-- ========== 数据看板 ========== -->
+    <!-- ========== 运行总览 ========== -->
     <section id="view-stats" class="view">
       <div class="dashboard">
         <div class="dash-title">
-          <h2>机房运维数据看板</h2>
+          <h2>运行总览</h2>
           <span class="dash-sub" id="dash-updated"></span>
+          <div class="dash-actions">
+            <button class="btn-ghost btn-sm" id="ov-refresh" title="刷新数据">
+              <svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg>
+              刷新
+            </button>
+          </div>
         </div>
 
-        <div class="kpi-row">
-          <div class="kpi">
-            <div class="kpi-value" id="kpi-total">-</div>
-            <div class="kpi-label">累计故障</div>
-          </div>
-          <div class="kpi kpi-red">
-            <div class="kpi-value" id="kpi-pending">-</div>
-            <div class="kpi-label">未报修</div>
-          </div>
-          <div class="kpi kpi-yellow">
-            <div class="kpi-value" id="kpi-selffix">-</div>
-            <div class="kpi-label">可自修</div>
-          </div>
-          <div class="kpi kpi-amber">
-            <div class="kpi-value" id="kpi-reported">-</div>
-            <div class="kpi-label">已报修</div>
-          </div>
-          <div class="kpi kpi-green">
-            <div class="kpi-value" id="kpi-resolved">-</div>
-            <div class="kpi-label">已解决</div>
-          </div>
-          <div class="kpi">
+        <!-- KPI：先看能不能用，不先看记了多少条 -->
+        <div class="kpi-row kpi-row-5">
+          <div class="kpi kpi-clickable" data-ov-go="rooms" title="查看教室管理">
             <div class="kpi-value" id="kpi-rate">-</div>
-            <div class="kpi-label">解决率</div>
+            <div class="kpi-label">设备可用率</div>
+          </div>
+          <div class="kpi kpi-amber kpi-clickable" data-ov-go="pending" title="查看未解决的报修">
+            <div class="kpi-value" id="kpi-broken">-</div>
+            <div class="kpi-label">损坏台数</div>
+          </div>
+          <div class="kpi kpi-red kpi-clickable" data-ov-go="pending" title="查看未解决的报修">
+            <div class="kpi-value" id="kpi-pending-records">-</div>
+            <div class="kpi-label">待处理条数</div>
+          </div>
+          <div class="kpi kpi-clickable" data-ov-go="repeat" title="查看反复故障">
+            <div class="kpi-value" id="kpi-repeat">-</div>
+            <div class="kpi-label">反复故障</div>
+          </div>
+          <div class="kpi kpi-clickable" data-ov-go="rooms" title="查看教室管理">
+            <div class="kpi-value" id="kpi-rooms">-</div>
+            <div class="kpi-label">覆盖教室</div>
           </div>
         </div>
 
+        <!-- 今天受影响的课：故障 + 正在/将要上课 → 给出调课去处 -->
+        <div id="ov-warn" class="ov-card hidden">
+          <div class="ov-card-head">
+            <span>今天受影响的课</span>
+            <span class="ov-head-note" id="ov-warn-note"></span>
+          </div>
+          <div id="ov-warn-list" class="ov-warn-list"></div>
+          <div id="ov-warn-more" class="ov-more hidden"></div>
+        </div>
+
+        <!-- 教室状态：只标"能不能上课"，坏几台放小灰字 -->
+        <div class="ov-card">
+          <div class="ov-card-head">
+            <span>教室状态</span>
+            <span class="ov-legend">
+              <i class="ov-dot ov-dot-bad"></i>影响上课
+              <i class="ov-dot ov-dot-ok"></i>正常
+            </span>
+          </div>
+          <div id="ov-grid" class="ov-grid"></div>
+        </div>
+
+        <!-- 反复故障 -->
+        <div class="ov-card">
+          <div class="ov-card-head">
+            <span>反复故障</span>
+            <span class="ov-head-note" id="repeat-hint">
+              同一教室同一原因累计 ≥3 次
+            </span>
+          </div>
+          <div id="repeat-list" class="repeat-list"></div>
+        </div>
+
+        <!-- 故障类型分布 + 趋势 -->
         <div class="chart-row">
           <div class="chart-card">
-            <h3>处理状态分布 <span class="chart-hint">点击跳转到对应记录</span></h3>
-            <div id="chart-status" class="chart chart-clickable"></div>
+            <h3>故障类型分布 <span class="chart-hint">点击筛选该类记录</span></h3>
+            <div id="ov-cats" class="ov-cats"></div>
           </div>
           <div class="chart-card">
-            <h3>故障教室排行 <span class="chart-hint">点击查看教室详情</span></h3>
-            <div id="chart-classroom" class="chart chart-clickable"></div>
-          </div>
-        </div>
-
-        <div class="chart-row">
-          <div class="chart-card chart-wide">
-            <h3>故障趋势（按日期）</h3>
-            <div id="chart-trend" class="chart chart-tall"></div>
-          </div>
-        </div>
-
-        <!-- 反复故障：同一间教室同一类故障累计 ≥3 次 -->
-        <div class="chart-row">
-          <div class="chart-card chart-wide">
-            <h3>
-              反复故障
-              <span class="chart-hint" id="repeat-hint">
-                同一教室同一原因累计 ≥3 次
-              </span>
-            </h3>
-            <div id="repeat-list" class="repeat-list"></div>
+            <h3>近 14 天趋势</h3>
+            <div id="chart-trend" class="chart"></div>
           </div>
         </div>
 
@@ -488,6 +522,55 @@
       </div>
     </section>
 
+    <!-- ========== 课表（空余教室查询） ========== -->
+    <section id="view-schedule" class="view">
+      <div class="dashboard schedule-page">
+
+        <div class="dash-title">
+          <h2>课表与空余教室</h2>
+          <span class="dash-sub" id="sched-term-line"></span>
+          <div class="dash-actions">
+            <button class="btn-ghost btn-sm" id="sched-period-btn">作息设置</button>
+            <button class="btn-primary btn-sm" id="sched-import-btn">导入课表</button>
+          </div>
+        </div>
+
+        <!-- 查询条件 -->
+        <div class="sched-query">
+          <div class="sched-field">
+            <label>星期</label>
+            <select id="sched-day"></select>
+          </div>
+          <div class="sched-field">
+            <label>节次</label>
+            <select id="sched-period"></select>
+          </div>
+          <div class="sched-field">
+            <label>周次</label>
+            <select id="sched-week"></select>
+          </div>
+          <div class="sched-field sched-seats-field">
+            <label>座位数 ≥</label>
+            <input type="number" id="sched-min-seats" min="0" placeholder="不限">
+          </div>
+          <button class="btn-ghost btn-sm" id="sched-now-btn" title="按当前时间自动填好">
+            现在
+          </button>
+          <button class="btn-primary btn-sm" id="sched-query-btn">查询</button>
+        </div>
+
+        <div id="sched-hint" class="sched-hint hidden"></div>
+
+        <div id="sched-results" class="sched-results"></div>
+
+        <div id="sched-empty" class="empty hidden">
+          <svg class="icon empty-icon" width="40" height="40"><use href="#i-calendar"/></svg>
+          <p>还没有导入任何课表</p>
+          <span class="empty-hint">点右上角「导入课表」，每间教室一个文件</span>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- ============================================================
@@ -543,11 +626,18 @@
         <span class="rail-badge" id="rail-badge-records"></span>
       </button>
 
-      <button class="rail-item" data-view="stats" title="数据看板">
+      <button class="rail-item" data-view="stats" title="运行总览">
         <span class="rail-icon">
           <svg class="icon" width="20" height="20"><use href="#i-chart"/></svg>
         </span>
-        <span class="rail-text">数据看板</span>
+        <span class="rail-text">运行总览</span>
+      </button>
+
+      <button class="rail-item" data-view="schedule" title="课表">
+        <span class="rail-icon">
+          <svg class="icon" width="20" height="20"><use href="#i-calendar"/></svg>
+        </span>
+        <span class="rail-text">课表</span>
       </button>
 
       <button class="rail-item" data-view="tasks" title="日常报备">
@@ -621,6 +711,130 @@
           <button id="back-to-list" class="back-btn">← 返回教室列表</button>
           <div id="room-detail" class="room-detail"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       课表：导入弹窗
+
+       先解析、不落盘，把结果显示出来让用户确认「课表里的教室」
+       对应系统里的哪一间，再点导入。
+
+       为什么要确认：课表里叫「第一实验楼机房C104」，
+       系统里叫「实验楼A-104」，而且两栋楼都可能有 104。
+       猜错了比猜不到更麻烦 —— 用户会以为系统识别对了直接导入。
+       ============================================================ -->
+  <div id="sched-import-modal" class="modal-mask hidden">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h3>导入课表</h3>
+        <button id="sched-import-close" class="modal-close" title="关闭">
+          <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="sched-drop" id="sched-drop">
+          <svg class="icon" width="26" height="26"><use href="#i-calendar"/></svg>
+          <p>拖入或点击选择课表文件</p>
+          <span>支持 .xls / .xlsx，一间教室一个文件，可多选</span>
+          <input type="file" id="sched-files" multiple accept=".xls,.xlsx" hidden>
+        </div>
+
+        <div id="sched-parse-result" class="sched-parse-result hidden"></div>
+
+        <div id="sched-term-note" class="sched-term-note hidden"></div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="btn-ghost btn-sm" id="sched-import-cancel">取消</button>
+        <button class="btn-primary btn-sm" id="sched-import-apply" disabled>
+          导入
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       课表：作息设置弹窗
+
+       课表里只有「第几节」，没有几点到几点。
+       要判断"现在有没有课"，必须把时间补上。
+
+       快速生成只需 5 个值（三个起点 + 单节时长 + 课间），
+       因为学校作息本质是「三段 + 固定节奏」；
+       生成后再逐节微调，应对实际的不规则排课。
+       ============================================================ -->
+  <div id="sched-period-modal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>作息设置</h3>
+        <button id="sched-period-close" class="modal-close" title="关闭">
+          <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="sched-term-row">
+          <div class="sched-field">
+            <label>学期开始</label>
+            <input type="date" id="sched-term-start">
+          </div>
+          <div class="sched-field">
+            <label>总周数</label>
+            <input type="number" id="sched-term-weeks" min="1" max="30" value="20">
+          </div>
+        </div>
+
+        <div class="sched-quick">
+          <div class="sched-quick-head">快速生成</div>
+          <div class="sched-quick-grid">
+            <div class="sched-field">
+              <label>上午第 1 节开始</label>
+              <input type="time" id="sched-anchor-am" value="08:00">
+            </div>
+            <div class="sched-field">
+              <label>下午第 5 节开始</label>
+              <input type="time" id="sched-anchor-pm" value="14:00">
+            </div>
+            <div class="sched-field">
+              <label>晚上第 9 节开始</label>
+              <input type="time" id="sched-anchor-eve" value="19:00">
+            </div>
+            <div class="sched-field">
+              <label>单节时长（分钟）</label>
+              <input type="number" id="sched-duration" value="45" min="20" max="120">
+            </div>
+            <div class="sched-field">
+              <label>课间（分钟）</label>
+              <input type="number" id="sched-break" value="10" min="0" max="60">
+            </div>
+          </div>
+          <button class="btn-ghost btn-sm" id="sched-generate">生成 12 节</button>
+        </div>
+
+        <div class="sched-period-list" id="sched-period-list"></div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="btn-ghost btn-sm" id="sched-period-cancel">取消</button>
+        <button class="btn-primary btn-sm" id="sched-period-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 课表：单间教室周课表 -->
+  <div id="sched-room-modal" class="modal-mask hidden">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h3 id="sched-room-title">本周课表</h3>
+        <button id="sched-room-close" class="modal-close" title="关闭">
+          <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="sched-room-body" class="sched-room-body"></div>
       </div>
     </div>
   </div>

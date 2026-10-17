@@ -131,6 +131,22 @@ document.getElementById('f').addEventListener('load', async () => {
     }
   }
 
+  // 课表页：固定查「星期二第 1 节第 5 周」，
+  // 不然截出来的结果取决于跑截图时是星期几。
+  if (scene === 'schedule') {
+    const doc = w.document;
+    const set = (sel, val) => {
+      const el = doc.querySelector(sel);
+      if (el) el.value = val;
+    };
+    set('#sched-day', '2');
+    set('#sched-period', '1');
+    set('#sched-week', '5');
+    const btn = doc.querySelector('#sched-query-btn');
+    if (btn) btn.click();
+    await sleep(1500);
+  }
+
   document.title = 'READY';
 });
 </script>

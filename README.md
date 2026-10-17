@@ -22,20 +22,17 @@
 |---|---|
 | ![落地页](docs/screenshots/01-landing.png) | ![对话式诊断](docs/screenshots/02-diagnosis.png) |
 
-| 报修台账 | 数据看板 |
+| 报修台账 | 运行总览 |
 |---|---|
-| ![报修台账](docs/screenshots/03-records.png) | ![数据看板](docs/screenshots/04-dashboard.png) |
+| ![报修台账](docs/screenshots/03-records.png) | ![运行总览](docs/screenshots/04-overview.png) |
+
+| 课表与空余教室 | 日常报备 |
+|---|---|
+| ![课表](docs/screenshots/05-schedule.png) | ![日常报备](docs/screenshots/06-daily-tasks.png) |
 
 | 教室与设备管理 | 教室详情 |
 |---|---|
-| ![教室管理](docs/screenshots/06-classroom-admin.png) | ![教室详情](docs/screenshots/07-classroom-detail.png) |
-
-<details>
-<summary>还有一张：日常报备</summary>
-
-![日常报备](docs/screenshots/05-daily-tasks.png)
-
-</details>
+| ![教室管理](docs/screenshots/07-classroom-admin.png) | ![教室详情](docs/screenshots/08-classroom-detail.png) |
 
 > 截图由 `tools/make_screenshots.py` 自动生成，改完界面后重跑即可保持一致，
 > 不需要手工截图。
@@ -47,7 +44,10 @@
 - **知识自动沉淀**：诊断结论自动写回知识库，越用越准
 - **四态设备模型**：未报修 / 可自修 / 已报修 / 已解决，区分「坏没坏」与「报没报修」
 - **报修台账**：教室维度记录故障，支持数量合并、状态流转、按状态分组
-- **数据看板**：状态分布、教室故障排行、故障趋势
+- **故障对象区分**：坏的是电脑还是教室设施（总闸 / 交换机 / 空调），后者不计入损坏台数
+- **反复故障分析**：同一教室同一类故障反复出现时单独标出 —— 反复坏同一处，多半是根因不是配件
+- **运行总览**：教室状态网格按「还能不能上课」判定，不是「坏了几台」
+- **课表与空余教室**：导入教务课表后，能查某一节哪间教室空着，并给出调课去处
 - **一页纸报表**：导出 Excel 给领导看，只回答「现在有多少台能用」
 - **AI 不可用时降级**：回退到本地关键词匹配，不至于完全不能用
 
@@ -65,6 +65,9 @@
 | v0.8.0 | 自动沉淀数据分离、检索粒度修复、并发写入保护 | ✅ 已完成 |
 | v0.9.0 | 自动化测试与 CI、统一文件锁、会话回收 | ✅ 已完成 |
 | v0.10.0 | 报修记录导出 Excel（教室现状 / 损坏明细 / 故障统计） | ✅ 已完成 |
+| v0.11.0 | 故障对象（电脑 / 教室设施）、故障细分类、反复故障分析 | ✅ 已完成 |
+| v0.12.0 | 课表导入、作息配置、空余教室查询、教师姓名脱敏 | ✅ 已完成 |
+| v0.13.0 | 运行总览：影响上课判定、今日课程预警、调课建议 | ✅ 已完成 |
 | — | 已在日常机房运维中实际使用 | ✅ 进行中 |
 
 > 版本号的单一来源是 `src/version.py`，改动版本时同步更新本表。
@@ -160,7 +163,7 @@ cd src
 python app.py
 ```
 
-浏览器访问 <http://127.0.0.1:5000>，可体验诊断对话、报修台账、教室管理和数据看板。
+浏览器访问 <http://127.0.0.1:5000>，可体验诊断对话、报修台账、运行总览、课表查询、教室管理。
 
 </details>
 
@@ -224,7 +227,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests -v
 ```
 
-当前 **160 个测试全部通过**。测试不调用真实大模型 API，无需配置 API Key。
+当前 **320 个测试全部通过**。测试不调用真实大模型 API，无需配置 API Key。
 
 重点覆盖了历史上真实出现过的缺陷，防止再次退化：
 
@@ -237,6 +240,13 @@ python -m pytest tests -v
 | `TestInitFileRace` | 文件初始化的「检查-写入」竞态（`'w'` 截断写） |
 | `TestStatusConstants` | 状态改名后的数据迁移、统计接口漏状态 |
 | `TestExcelExport` | 报表口径（正常 + 损坏 = 总数）与纵向合并 |
+| `TestClassifyRecord` | 故障分类被诊断结论里的鉴别诊断带偏 |
+| `TestRepeatedFaults` | 反复故障的跨教室 / 跨分类误合并、复发计数 |
+| `TestParse` | 课表解析被课程名里的斜杠切错位、一格两门课漏读 |
+| `TestMaskTeacher` | 教师姓名脱敏漏字、复姓被切成一个字 |
+| `TestQuery` | 未导入课表的教室被误算成「空闲」 |
+| `TestRoomImpact` | 「影响上课」判定漏条件（整间跳闸 / 教师机 / 座位不足） |
+| `TestSuggestRooms` | 调课推荐给出坐不下的教室、或推荐没课表的教室 |
 
 CI 配置在 `.github/workflows/tests.yml`，每次推送自动在
 **Windows / Linux × Python 3.10 / 3.12** 四种组合上跑一遍
@@ -326,7 +336,7 @@ dsh-fault-diagnosis/
 │   ├── make_screenshots.py       # 自动生成 README 截图
 │   ├── ci_report.py              # CI 失败用例转 annotation
 │   └── export_conversation.py    # 导出 AI 对话记录
-├── tests/                        # 自动化测试（pytest，160 个）
+├── tests/                        # 自动化测试（pytest，320 个）
 ├── start.bat                     # 一键启动（Windows，双击即可）
 ├── start.sh                      # 一键启动（Linux / macOS）
 ├── .github/workflows/tests.yml   # CI：推送自动跑测试

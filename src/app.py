@@ -28,6 +28,7 @@ import repair_log
 import classroom
 import daily_task
 import schedule
+import overview
 import version
 
 # Flask 应用配置
@@ -610,12 +611,31 @@ def api_repeated_faults():
     })
 
 
+@app.route('/api/overview', methods=['GET'])
+def api_overview():
+    """
+    运行总览的全部数据
+
+    回答两类问题：
+      一、这间教室现在还能不能上课（不是"坏了几台"）
+      二、今天还有哪几节课要出问题（提前准备调课）
+
+    为什么不拆成多个接口：
+      看板是一次性渲染的，拆开会让前端并发 5 个请求、
+      还要自己处理部分失败；一次性返回更简单，数据量也小（22 间教室）。
+    """
+    try:
+        # 教师姓名在 overview 里已统一脱敏（today_warnings 里调 mask_teacher）
+        return jsonify(overview.overview())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================
 # 课表
 #
 # 用途：教室突发状况时，回答「这节课去哪上」——
-# 需要知道现在第几周第几节、哪间教室有课、哪间空着。
-#
+# 需要知道现在第几周第几节、哪间教室有课、哪间空着。#
 # 注意：所有返回教师的接口都必须脱敏（schedule.mask_*），
 # 真实姓名不能出现在响应里 —— 前端脱敏等于没脱敏，
 # 打开开发者工具就能看到。

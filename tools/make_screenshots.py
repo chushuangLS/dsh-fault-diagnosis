@@ -54,10 +54,11 @@ SCENES = [
     ('landing', '01-landing.png'),
     ('chat', '02-diagnosis.png'),
     ('records', '03-records.png'),
-    ('stats', '04-dashboard.png'),
-    ('tasks', '05-daily-tasks.png'),
-    ('admin', '06-classroom-admin.png'),
-    ('room', '07-classroom-detail.png'),
+    ('stats', '04-overview.png'),
+    ('schedule', '05-schedule.png'),
+    ('tasks', '06-daily-tasks.png'),
+    ('admin', '07-classroom-admin.png'),
+    ('room', '08-classroom-detail.png'),
 ]
 
 WINDOW = '1440,900'
