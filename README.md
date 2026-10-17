@@ -129,7 +129,31 @@ echo $env:DEEPSEEK_API_KEY
 
 ### 5. 运行
 
-**方式一：Web 版（推荐）**
+**方式一：一键启动（推荐）**
+
+- **Windows**：双击根目录的 `start.bat`
+  （或命令行执行 `.\start.bat`）
+- **Linux / macOS**：`./start.sh`
+
+脚本会自动完成这些事，不用记命令：
+
+```
+· 检查 Python 与依赖（缺依赖会自动装）
+· 从环境变量读取 DEEPSEEK_API_KEY —— 这一步最容易被忘，
+  忘了它服务照样能起来，但一问诊就报「请求失败」
+· 检查端口是否已被占用（占用则直接打开浏览器，不重复启动）
+· 启动后自动打开浏览器
+```
+
+常用参数：
+
+```powershell
+.\start.bat -Port 5001      # 换端口
+.\start.bat -NoBrowser      # 不自动开浏览器
+```
+
+<details>
+<summary>方式二：手动启动 Web 版</summary>
 
 ```bash
 cd src
@@ -138,7 +162,15 @@ python app.py
 
 浏览器访问 <http://127.0.0.1:5000>，可体验诊断对话、报修台账、教室管理和数据看板。
 
-**方式二：命令行版**
+</details>
+
+> 启动脚本里的中文提示由 `tools/start_server.ps1` 输出。
+> 该文件保存为 **UTF-8 with BOM** —— PowerShell 5.1 读无 BOM 的脚本会按
+> GBK 解码，中文被拆错后会报「字符串缺少终止符」这类难以定位的错。
+> `start.bat` 本身保持纯 ASCII：cmd.exe 按系统代码页读取 .bat，
+> 混入 UTF-8 中文并配合 `chcp` 会让 cmd 读错后续行。
+
+**方式三：命令行版**
 
 ```bash
 cd src
@@ -290,10 +322,13 @@ dsh-fault-diagnosis/
 │   └── static/                   # 样式、脚本、ECharts（本地引入）
 │       └── screenshot-probe.html # 截图探针（仅供生成 README 截图）
 ├── tools/
+│   ├── start_server.ps1          # 一键启动（Windows，主逻辑）
 │   ├── make_screenshots.py       # 自动生成 README 截图
 │   ├── ci_report.py              # CI 失败用例转 annotation
 │   └── export_conversation.py    # 导出 AI 对话记录
 ├── tests/                        # 自动化测试（pytest，160 个）
+├── start.bat                     # 一键启动（Windows，双击即可）
+├── start.sh                      # 一键启动（Linux / macOS）
 ├── .github/workflows/tests.yml   # CI：推送自动跑测试
 ├── requirements.txt
 ├── requirements-dev.txt

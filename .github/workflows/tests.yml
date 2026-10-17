@@ -36,6 +36,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: 检查启动脚本语法
+        # start.sh 只在 Linux 上验证 —— 本机开发通常在 Windows，写的时候没法跑
+        if: runner.os == 'Linux'
+        run: bash -n start.sh
+
       - name: 运行测试
         # 测试不调用真实大模型 API，因此不需要配置 DEEPSEEK_API_KEY
         #
