@@ -27,6 +27,7 @@ from ai_diagnosis import DiagnosisSession
 import repair_log
 import classroom
 import daily_task
+import schedule
 import version
 
 # Flask 应用配置
@@ -607,6 +608,314 @@ def api_repeated_faults():
         'min_count': repair_log.REPEAT_MIN_COUNT,
         'min_recur': repair_log.REPEAT_MIN_RECUR,
     })
+
+
+# ============================================================
+# 课表
+#
+# 用途：教室突发状况时，回答「这节课去哪上」——
+# 需要知道现在第几周第几节、哪间教室有课、哪间空着。
+#
+# 注意：所有返回教师的接口都必须脱敏（schedule.mask_*），
+# 真实姓名不能出现在响应里 —— 前端脱敏等于没脱敏，
+# 打开开发者工具就能看到。
+# ============================================================
+
+def _schedule_rooms():
+    """教室台账的扁平列表（用于映射与查询）"""
+    return classroom.flat_rooms()
+
+
+@app.route('/api/schedule/summary', methods=['GET'])
+def api_schedule_summary():
+    """
+    课表概览
+
+    返回：
+      {
+        'term': {...}, 'rooms': 已导入教室数, 'periods': 已配置节次数,
+        'course_count': 课程条数,
+        'week': 当前第几周, 'period': 当前第几节,
+      }
+    """
+    try:
+        s = schedule.summary()
+        s['week'] = schedule.current_week()
+        s['period'] = schedule.current_period()
+        return jsonify(s)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/schedule/parse', methods=['POST'])
+def api_schedule_parse():
+    """
+    解析上传的课表文件（只解析，不落盘）
+
+    前端先拿到解析结果确认「课表里的教室」对应哪间系统教室，
+    再调 /api/schedule/apply 落盘。
+
+    请求：multipart/form-data，字段名 files（可多个）
+
+    返回：
+      {
+        'ok': true,
+        'files': [
+          {
+            'filename', 'ok', 'error',
+            'room_label', 'seats', 'term', 'course_count',
+            'guess': {'building', 'room'} | null,   # 自动猜到的映射
+          }, ...
+        ],
+        'term': {...},     # 以第一个解析成功的文件为准
+      }
+    """
+    files = request.files.getlist('files') or []
+    if not files:
+        return jsonify({'ok': False, 'message': '没有收到文件'}), 400
+
+    rooms = _schedule_rooms()
+    out = []
+    term = None
+
+    for f in files:
+        name = f.filename or '(未命名)'
+        item = {'filename': name, 'ok': False, 'error': ''}
+
+        try:
+            data = f.read()
+            if not data:
+                raise ValueError('文件是空的')
+            parsed = schedule.parse_file(data)
+        except Exception as e:
+            item['error'] = str(e)
+            out.append(item)
+            continue
+
+        item.update({
+            'ok': True,
+            'room_label': parsed.get('room_label', ''),
+            'seats': parsed.get('seats'),
+            'term': parsed.get('term'),
+            'course_count': len(parsed.get('courses') or []),
+            'guess': None,
+        })
+
+        # 自动猜映射：从教室名里抠数字，唯一命中才给
+        g = schedule.guess_room(parsed.get('room_label', ''), rooms)
+        if g:
+            item['guess'] = {'building': g[0], 'room': g[1]}
+
+        # 把解析结果暂存在内存里，apply 时不需要重新上传
+        # （按文件名做键；同一批里的文件名应当唯一）
+        _PARSE_CACHE[name] = {
+            'parsed': parsed,
+            'seats': parsed.get('seats'),
+        }
+
+        if term is None:
+            term = parsed.get('term')
+
+        out.append(item)
+
+    return jsonify({'ok': True, 'files': out, 'term': term})
+
+
+# 解析结果暂存：文件名 → 解析结果
+#
+# 为什么放内存而不是让前端把内容再传一遍：
+#   课表文件不大，但重复上传体验差，而且 apply 只需要「哪间教室 + 文件内容」。
+#   服务是单进程的本地应用，内存缓存足够；
+#   重启后缓存丢了也不影响 —— 前端会提示重新选择文件。
+_PARSE_CACHE = {}
+
+
+@app.route('/api/schedule/apply', methods=['POST'])
+def api_schedule_apply():
+    """
+    按确认好的映射落盘
+
+    请求体：
+      {
+        "items": [
+          {"filename": "C104.xls", "building": "实验楼A", "room": "104"},
+          ...
+        ]
+      }
+
+    同一间教室重复导入会整份替换（课表按学期整份导出，合并反而会留下过期课程）。
+    """
+    body = request.get_json(silent=True) or {}
+    items = body.get('items') or []
+    if not items:
+        return jsonify({'ok': False, 'message': '没有要导入的课表'}), 400
+
+    done, failed = [], []
+    for it in items:
+        name = (it.get('filename') or '').strip()
+        building = (it.get('building') or '').strip()
+        room = (it.get('room') or '').strip()
+
+        cached = _PARSE_CACHE.get(name)
+        if not cached:
+            failed.append({'filename': name,
+                           'error': '解析结果已过期，请重新选择文件'})
+            continue
+        if not building or not room:
+            failed.append({'filename': name, 'error': '没有指定对应教室'})
+            continue
+
+        try:
+            n = schedule.upsert_room(building, room, cached['parsed'], name)
+
+            # 座位数如果和台账不一致，顺手同步 ——
+            # 课表上的「座位数」就是这间教室的设备数，比手填的准。
+            # 同步失败不影响导入本身，所以不抛错。
+            seats = cached.get('seats')
+            if seats:
+                try:
+                    classroom.update_room(building, room, total=seats)
+                except Exception:
+                    pass
+
+            done.append({'filename': name, 'building': building,
+                         'room': room, 'course_count': n})
+            _PARSE_CACHE.pop(name, None)
+        except Exception as e:
+            failed.append({'filename': name, 'error': str(e)})
+
+    return jsonify({'ok': bool(done), 'done': done, 'failed': failed})
+
+
+@app.route('/api/schedule/periods', methods=['GET'])
+def api_schedule_periods_get():
+    """读取节次作息时间"""
+    data = schedule.load()
+    return jsonify({
+        'term': data.get('term') or {},
+        'periods': data.get('periods') or {},
+    })
+
+
+@app.route('/api/schedule/periods', methods=['POST'])
+def api_schedule_periods_set():
+    """
+    保存节次作息时间
+
+    请求体：
+      {
+        "term": {"start": "2026-09-07", "weeks": 20},
+        "periods": {"1": {"start": "08:00", "end": "08:45"}, ...}
+      }
+    """
+    body = request.get_json(silent=True) or {}
+    periods = body.get('periods') or {}
+    term = body.get('term') or {}
+
+    # 校验时间格式，不合格的直接拒绝，
+    # 免得存进去之后「现在第几节」永远算不出来
+    for key, span in periods.items():
+        for field in ('start', 'end'):
+            if schedule._hhmm_to_min((span or {}).get(field)) is None:
+                return jsonify({
+                    'ok': False,
+                    'message': f'第 {key} 节的{field}时间格式不对，应为 HH:MM',
+                }), 400
+
+    try:
+        schedule.set_periods(periods)
+        if term.get('start'):
+            schedule.set_term(term['start'], term.get('weeks') or 0)
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+    return jsonify({'ok': True})
+
+
+@app.route('/api/schedule/query', methods=['GET'])
+def api_schedule_query():
+    """
+    查询某个时间点各教室的占用情况
+
+    参数：day（1-7）、period（1-12）、week、min_seats
+
+    返回三类，**未导入课表的教室必须单独列出** ——
+    不知道有没有课就说"空着"，会把人引到正在上课的教室去。
+    """
+    try:
+        day = int(request.args.get('day') or 0)
+        period = int(request.args.get('period') or 0)
+        week = int(request.args.get('week') or 0)
+        min_seats = int(request.args.get('min_seats') or 0)
+    except ValueError:
+        return jsonify({'error': '参数必须是数字'}), 400
+
+    if not (1 <= day <= 7) or not (1 <= period <= 12) or week < 1:
+        return jsonify({'error': '星期或节次或周次超出范围'}), 400
+
+    try:
+        res = schedule.query(day, period, week)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    if min_seats > 0:
+        res['free'] = [r for r in res['free']
+                       if (r.get('seats') or 0) >= min_seats]
+        res['busy'] = [r for r in res['busy']
+                       if (r.get('seats') or 0) >= min_seats]
+
+    # 教师脱敏：占用中的卡片要显示是谁的课
+    for r in res['busy']:
+        if r.get('course'):
+            r['course'] = schedule.mask_course(r['course'])
+
+    res.update({'day': day, 'period': period, 'week': week,
+                'min_seats': min_seats})
+    return jsonify(res)
+
+
+@app.route('/api/schedule/room', methods=['GET'])
+def api_schedule_room():
+    """
+    某间教室的整周课表
+
+    参数：building、room
+
+    返回：{'rooms': ..., 'courses': [...]}（教师已脱敏）
+    """
+    building = (request.args.get('building') or '').strip()
+    room = (request.args.get('room') or '').strip()
+    if not building or not room:
+        return jsonify({'error': '缺少教学楼或教室'}), 400
+
+    data = schedule.load()
+    rd = (data.get('rooms') or {}).get(schedule.room_key(building, room))
+    if not rd:
+        return jsonify({'ok': False, 'message': '这间教室还没有导入课表'}), 404
+
+    masked = schedule.mask_room(rd)
+    return jsonify({
+        'ok': True,
+        'building': building,
+        'room': room,
+        'label': rd.get('label', ''),
+        'seats': rd.get('seats'),
+        'term': data.get('term') or {},
+        'courses': masked.get('courses') or [],
+    })
+
+
+@app.route('/api/schedule/room', methods=['DELETE'])
+def api_schedule_room_delete():
+    """删除某间教室的课表"""
+    body = request.get_json(silent=True) or {}
+    building = (body.get('building') or '').strip()
+    room = (body.get('room') or '').strip()
+    if not building or not room:
+        return jsonify({'ok': False, 'message': '缺少教学楼或教室'}), 400
+
+    schedule.remove_room(building, room)
+    return jsonify({'ok': True})
 
 
 def _knowledge_stats():

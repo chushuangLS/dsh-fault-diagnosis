@@ -34,6 +34,7 @@ def tmp_data(tmp_path, monkeypatch):
     import classroom
     import daily_task
     import repair_log
+    import schedule
 
     d = tmp_path / 'data'
     d.mkdir()
@@ -43,6 +44,7 @@ def tmp_data(tmp_path, monkeypatch):
     monkeypatch.setattr(classroom, 'DATA_FILE', str(d / 'classrooms.json'))
     monkeypatch.setattr(daily_task, 'DATA_FILE', str(d / 'daily_tasks.json'))
     monkeypatch.setattr(repair_log, 'RECORD_FILE', str(d / 'repair_records.csv'))
+    monkeypatch.setattr(schedule, 'DATA_FILE', str(d / 'schedule.json'))
 
     return d
 

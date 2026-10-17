@@ -9,3 +9,9 @@
 -r requirements.txt
 
 pytest>=8.0.0
+
+# 只有重新生成课表测试样本时才需要（tools/make_schedule_fixture.py）
+#
+# 为什么单独放这里：运行时只读 .xls（用 xlrd），从不写 .xls。
+# 这个包只为造测试样本服务，不该让使用者装。
+xlwt>=1.3.0

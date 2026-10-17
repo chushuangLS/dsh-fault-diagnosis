@@ -3,7 +3,8 @@
 # 安装：
 #   pip install -r requirements.txt
 #
-# 说明：本项目只依赖这两个库，无需数据库或前端构建工具。
+# 说明：项目只依赖这三个库，无需数据库或前端构建工具。
+# 前端是原生 HTML/CSS/JS，ECharts 已随仓库内置。
 
 # 大模型调用（DeepSeek 兼容 OpenAI 接口）
 openai>=1.0.0
@@ -11,5 +12,12 @@ openai>=1.0.0
 # Web 版后端（命令行走 main.py 时不需要，跑 src/app.py 时必须）
 flask>=3.0.0
 
-# 报修记录导出 Excel
+# 报修记录导出 Excel（读写 .xlsx）
 openpyxl>=3.1.0
+
+# 读取教务系统导出的课表 .xls（老式 OLE2 格式）
+#
+# openpyxl 只能读 .xlsx，读不了 .xls。
+# xlrd 2.x 反过来只支持 .xls —— 正好互补，而且它是纯 Python，体积很小。
+# 学校系统导出的就是 .xls，让用户每次手动转存太麻烦，所以直接支持。
+xlrd>=2.0.0

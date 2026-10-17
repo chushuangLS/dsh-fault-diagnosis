@@ -43,6 +43,13 @@ data/repair_records.csv
 data/classrooms.json
 data/daily_tasks.json
 
+# 课表数据（含真实教师姓名、教学班、选课人数，绝对不能公开）
+#
+# 接口层已经做了教师脱敏（只保留姓），这里再加一道：
+# 若误提交，真实姓名会永久留在 git 历史里，删也删不干净。
+data/schedule.json
+data/schedule.json.lock
+
 # 知识库自动沉淀（程序每次诊断后追加，属运行时数据）
 # 手工维护的知识库 data/fault_cases.json 仍然提交，
 # 这样人工积累的经验可以随仓库传递、评审和回滚。
