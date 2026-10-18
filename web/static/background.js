@@ -39,6 +39,13 @@
     color: [59, 130, 246],   // 主题蓝
   };
 
+  // 帧率上限
+  //
+  // 线条演化的速度很慢（speed 1.2，一个完整起伏要好几秒），
+  // 30fps 和 60fps 肉眼几乎没区别，但绘制量直接减半。
+  // 应用页背景 alpha 只有 0.07，几乎看不见，再降到 20fps。
+  const FPS = { landing: 30, app: 20 };
+
   const ALPHA = {
     landing: 0.28,      // 落地页：清晰，是页面的视觉主体
     // 应用页：大幅淡化。
@@ -165,11 +172,21 @@
      ------------------------------------------------------------ */
   let lastTime = performance.now();
 
+  let lastPaint = 0;
+
   function draw(now) {
     rafId = null;
     if (!visible) return;
 
-    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    // 帧率限制：不到间隔就只续订下一帧，不做任何绘制
+    const interval = 1000 / (FPS[mode] || 30);
+    if (now - lastPaint < interval - 1) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
+    // dt 用真实间隔算，否则降帧后动画会变慢
+    const dt = Math.min((now - lastPaint) / 1000, 0.05);
+    lastPaint = now;
     lastTime = now;
 
     // 「减少动态」时几乎静止，只保留极缓慢的变化
