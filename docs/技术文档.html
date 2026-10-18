@@ -245,7 +245,7 @@ tr:nth-child(even) td { background: #f8fafc; }
     <tr><td>作品名称</td><td>机房故障智能诊断助手</td></tr>
     <tr><td>选题方向</td><td>场景化轻量 RAG 知识库</td></tr>
     <tr><td>技术栈</td><td>Python · Flask · DeepSeek API · 原生前端</td></tr>
-    <tr><td>当前版本</td><td>v0.10.0</td></tr>
+    <tr><td>当前版本</td><td>v0.14.0</td></tr>
     <tr><td>代码仓库</td><td>github.com/liyishuo1/dsh-fault-diagnosis</td></tr>
     <tr><td>作者</td><td>李一硕</td></tr>
   </table>
@@ -275,6 +275,8 @@ tr:nth-child(even) td { background: #f8fafc; }
     <li class="l2"><span>3.3 知识库自动沉淀</span><span></span></li>
     <li class="l2"><span>3.4 设备状态四态模型</span><span></span></li>
     <li class="l2"><span>3.5 并发写入保护</span><span></span></li>
+    <li class="l2"><span>3.6 课表：从教务表格到「哪间空着」</span><span></span></li>
+    <li class="l2"><span>3.7 运行总览：判定「能不能上课」</span><span></span></li>
 
     <li><span>四、意图控制策略</span><span>13</span></li>
     <li class="l2"><span>4.1 系统提示词设计</span><span></span></li>
@@ -932,6 +934,122 @@ with file_lock(AUTO_FILE):
 均已固化进 <code>tests/test_concurrency.py</code>。
 </p>
 
+<h2>3.6 课表：从教务表格到「哪间空着」</h2>
+
+<p>
+教室坏了，最急的不是「这台怎么修」，而是<b>这节课去哪上</b>。
+要回答这个问题，系统必须先知道：现在第几周、第几节，哪间教室有课。
+</p>
+
+<h3>解析教务导出的课表</h3>
+
+<p>
+学校导出的是一间教室一个 <code>.xls</code> 文件，格式固定：
+</p>
+
+<pre><code>第 0 行   2026-2027学年第1学期 | 第一实验楼机房C104场地课表 | 座位数：80
+第 1 行   节次 | (空) | 星期一 … 星期日
+第 2-13 行  上午(一~四) / 下午(五~八) / 晚上(九~十二)
+第 14 行  注--内容顺序为：课程&lt;&gt;周次&lt;&gt;教师&lt;&gt;教学班&lt;&gt;选课人数
+          本学期2026-09-07正式上课至2027-01-24结束，共20周.</code></pre>
+
+<p>每个格子里是：</p>
+
+<pre><code>专业软件CAD/SU/(5-5节)1-8周/石嘉伟/专业软件CAD/SU-0002/选课人数：26</code></pre>
+
+<p>
+<b>课程名和教学班名里都可能带斜杠</b>，按 <code>/</code> 硬切会碎成 7 段。
+所以解析时用「<code>(N-N节)X-Y周</code>」这一段当锚点，前后分别处理。
+一个格子里还可能有两门课（不同周次交替），用换行分隔，都要提取。
+</p>
+
+<p>
+文件格式<b>按文件头判断，不看后缀</b>——学校系统的后缀经常不准：
+OLE2 走 <code>xlrd</code>，ZIP 走 <code>openpyxl</code>。
+</p>
+
+<h3>作息时间：课表里没有的东西</h3>
+
+<p>
+课表只有「第几节」，<b>没有几点到几点</b>。而「现在有没有课」需要真实时间。
+所以系统里存了一份全校统一的作息表，并提供一个快速生成入口：
+填三个段的起始时间 + 单节时长 + 课间，就能生成 12 节，之后可逐节微调。
+</p>
+
+<h3>空余查询必须区分三类教室</h3>
+
+<table>
+  <tr><th style="width:22%">类别</th><th>含义</th></tr>
+  <tr><td><b>空闲</b></td><td>已导入课表，且这一节确实没有排课</td></tr>
+  <tr><td><b>占用中</b></td><td>这一节有课，附课程 / 教师 / 人数</td></tr>
+  <tr><td><b>未导入课表</b></td><td>不知道有没有课</td></tr>
+</table>
+
+<div class="callout warn">
+  <b>第三类绝对不能算成空闲。</b>
+  不知道有没有课就说「空着」，会把学生引到正在上课的教室去。
+  这是这一块最容易被写错的地方，测试里专门锁了这条。
+</div>
+
+<h3>教师姓名在出口处脱敏</h3>
+
+<p>
+作品中不得出现真实教师姓名。脱敏放在<b>后端返回时</b>做，而不是前端——
+前端做的话，真名仍然出现在接口返回的 JSON 里，打开开发者工具就能看到。
+复姓（欧阳、司马等）按两个字处理，避免变成「欧老师」。
+</p>
+
+<h2>3.7 运行总览：判定「能不能上课」</h2>
+
+<p>
+看板最容易做成「记了多少条」的统计表，但运维真正要回答的是一个问题：
+</p>
+
+<p><b>这间教室现在还能不能上课？</b></p>
+
+<p>
+「坏了几台」不足以回答它 —— 78 人的课坏 2 台照样能上；
+教师机坏了却一台不缺也上不了。所以判定分三条，命中任一即算受影响：
+</p>
+
+<table>
+  <tr><th style="width:24%">条件</th><th>判定依据</th></tr>
+  <tr><td><b>整间跳闸</b></td><td>有未解决的教室设施故障，且现象含 总闸 / 跳闸 / 停电 / 短路 / 漏电</td></tr>
+  <tr><td><b>整间断网</b></td><td>故障对象是教室设施，且提到 交换机 / 上联 / 路由器（机房课基本都要联网）</td></tr>
+  <tr><td><b>教师机故障</b></td><td>未解决故障出现在教师机 / 讲台</td></tr>
+  <tr><td><b>座位不够</b></td><td>可用台数 &lt; 该节次选课人数（仅在这一节有课时判断）</td></tr>
+</table>
+
+<div class="callout">
+  <b>「整间断网」这条是被真实使用逼出来的。</b>
+  原先只判跳闸和教师机，于是「409 教室交换机坏了，明天 8 点有 74 人的课」
+  在系统里显示为「不影响」。可机房课离了网络就上不了。
+</div>
+
+<h3>预警要往后看，不能只扫今天</h3>
+
+<p>
+最早的实现只遍历「今天」的课。结果周日晚上打开系统时，今天没课 →
+整块空白，而明天一早八点的课此刻就受着故障影响，完全看不到。
+现在的范围是<b>今天 + 明天</b>，每条预警标清「今天 周六」「明天 周一」，
+并且每一天的周次单独计算（周日跨周时会变）。
+</p>
+
+<h3>反复故障：同一处反复坏，指向的是根因</h3>
+
+<p>
+同一间教室、同一类故障累计 ≥3 次时单独列出。
+反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳 ——
+这类信息在逐条记录里看不出来，必须聚合。
+</p>
+
+<p>
+分类口径上有一个坑：一开始把「故障现象 + 诊断结论」一起做关键词匹配，
+结果结论里的鉴别诊断（「换线后显示器正常，问题在主机端」）
+把「电脑打不开」判成了显示故障，18 条记录错了 3 条。
+改成<b>只按故障现象判</b>——现象是运维人员自己的简短描述，稳定且没有干扰。
+</p>
+
 <!-- ==================== 四、意图控制策略 ==================== -->
 <h1>四、意图控制策略</h1>
 
@@ -1089,7 +1207,7 @@ def parse_quantity(text):
 <h2>5.1 自动化测试</h2>
 
 <p>
-项目包含 <b>159 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
+项目包含 <b>326 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
 </p>
 
 <table>
@@ -1127,6 +1245,26 @@ def parse_quantity(text):
     <td><code>test_excel_export.py</code></td>
     <td>32</td>
     <td>报表口径、纵向合并、原因精简、合计行</td>
+  </tr>
+  <tr>
+    <td><code>test_facility_target.py</code></td>
+    <td>23</td>
+    <td>故障对象判定、设施故障不计入台数、提示词安全规则</td>
+  </tr>
+  <tr>
+    <td><code>test_fault_category.py</code></td>
+    <td>36</td>
+    <td>故障细分类、反复故障阈值与复发计数、跨教室不合并</td>
+  </tr>
+  <tr>
+    <td><code>test_schedule.py</code></td>
+    <td>56</td>
+    <td>课表解析（.xls/.xlsx）、教师脱敏、教室映射、周次推算、空余查询</td>
+  </tr>
+  <tr>
+    <td><code>test_overview.py</code></td>
+    <td>43</td>
+    <td>影响上课判定、整间断网、预警跨天、调课推荐筛选</td>
   </tr>
 </table>
 
@@ -1301,7 +1439,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
   <tr><th style="width:26%">项目</th><th>要求</th></tr>
   <tr><td>操作系统</td><td>Windows / Linux / macOS</td></tr>
   <tr><td>Python</td><td>3.10 或更高（开发环境 3.15.0）</td></tr>
-  <tr><td>依赖库</td><td>仅 3 个：<code>openai</code> <code>flask</code> <code>openpyxl</code></td></tr>
+  <tr><td>依赖库</td><td>仅 4 个：<code>openai</code> <code>flask</code> <code>openpyxl</code> <code>xlrd</code>（读教务导出的 .xls）</td></tr>
   <tr><td>数据库</td><td>无需数据库</td></tr>
   <tr><td>前端构建</td><td>无需构建工具（原生 HTML/CSS/JS）</td></tr>
   <tr><td>API Key</td><td>DeepSeek API Key（从环境变量读取）</td></tr>
@@ -1313,7 +1451,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
 git clone git@github.com:liyishuo1/dsh-fault-diagnosis.git
 cd dsh-fault-diagnosis
 
-# 2) 安装依赖（仅 3 个库）
+# 2) 安装依赖（仅 4 个库）
 pip install -r requirements.txt
 
 # 3) 配置 API Key（不写入代码，从环境变量读取）
@@ -1326,7 +1464,7 @@ cd src
 python app.py
 # 浏览器访问 http://127.0.0.1:5000
 
-# 5) 运行测试（可选，159 个用例）
+# 5) 运行测试（可选，326 个用例）
 pip install -r requirements-dev.txt
 python -m pytest tests -v</code></pre>
 
@@ -1384,11 +1522,27 @@ python -m pytest tests -v</code></pre>
   <tr>
     <td rowspan="2">工程化</td>
     <td>v0.9.0</td>
-    <td>159 个测试 → CI → 统一文件锁 → 会话回收</td>
+    <td>测试 → CI → 统一文件锁 → 会话回收</td>
   </tr>
   <tr>
     <td>v0.10.0</td>
     <td>Excel 报表 → 四态模型 → 界面重构</td>
+  </tr>
+  <tr>
+    <td>v0.11.0</td>
+    <td>故障对象（电脑 / 教室设施）、故障细分类、反复故障分析</td>
+  </tr>
+  <tr>
+    <td>v0.12.0</td>
+    <td>课表导入、作息配置、空余教室查询、教师姓名脱敏</td>
+  </tr>
+  <tr>
+    <td>v0.13.0</td>
+    <td>运行总览：影响上课判定、课程预警、调课建议</td>
+  </tr>
+  <tr>
+    <td>v0.14.0</td>
+    <td>课表页改为当天矩阵；预警扩到今天和明天；整间断网判定；列表分页</td>
   </tr>
 </table>
 
@@ -1546,7 +1700,7 @@ python -m pytest tests -v</code></pre>
 
 <div style="margin-top:44px;padding-top:18px;border-top:1px solid #e2e8f0;
             text-align:center;color:#a0aec0;font-size:9.5pt">
-  机房故障智能诊断助手 · 技术文档 · v0.10.0<br>
+  机房故障智能诊断助手 · 技术文档 · v0.14.0<br>
   李一硕 · 2026 年 10 月
 </div>
 
