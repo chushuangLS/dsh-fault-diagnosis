@@ -408,3 +408,93 @@ class TestWarnHorizon:
 
     def test_warn_days_constant(self):
         assert overview.WARN_DAYS == 2
+
+
+class TestWarnMerging:
+    """
+    同一间教室一天只出一条预警
+
+    否则一间教室坏了，第 1~8 节每节都生成一条，
+    面板上全是同一间教室，真正要看的信息（哪几间受影响）被淹掉。
+    """
+
+    def _build(self, tmp_data):
+        from datetime import date, timedelta
+
+        classroom.add_building('实验楼A')
+        classroom.add_room('实验楼A', '101', total=80)
+        classroom.add_room('实验楼A', '102', total=80)
+
+        today_wd = date.today().isoweekday()
+        start = (date.today() - timedelta(days=28)).isoformat()
+
+        # 101 今天第 1~4 节都有课
+        courses = [{
+            'day': today_wd, 'period_start': p, 'period_end': p,
+            'week_start': 1, 'week_end': 20,
+            'name': '课程%d' % p, 'teacher': '张甲', 'students': 50 + p,
+        } for p in (1, 2, 3, 4)]
+
+        parsed = {'room_label': 'x', 'seats': 80,
+                  'term': {'start': start, 'weeks': 20},
+                  'courses': courses}
+        schedule.upsert_room('实验楼A', '101', parsed, 'x.xls')
+        schedule.set_periods({str(p): {'start': '0%d:00' % (7 + p),
+                                       'end': '0%d:45' % (7 + p)}
+                              for p in range(1, 13)})
+
+        for p in (1, 2, 3, 4):
+            repair_log.add_record(classroom='101', symptom='教室总闸跳闸',
+                                  conclusion='x',
+                                  status=repair_log.STATUS_PENDING,
+                                  building='实验楼A')
+        return schedule.load()
+
+    def test_same_room_same_day_merges_to_one(self, tmp_data):
+        data = self._build(tmp_data)
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
+                                        classroom.flat_rooms())
+
+        assert len(ws) == 1, '同一间教室同一天应合并成一条'
+        w = ws[0]
+        assert w['room'] == '101'
+        assert w['period_from'] == 1
+        assert w['period_to'] == 4
+        assert w['class_count'] == 4
+        # 人数取最多的那节
+        assert w['students'] == 54
+
+    def test_merge_keeps_course_names(self, tmp_data):
+        data = self._build(tmp_data)
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
+                                        classroom.flat_rooms())
+        assert len(ws[0]['course_names']) == 4
+
+    def test_merge_keeps_suggest_period(self, tmp_data):
+        data = self._build(tmp_data)
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
+                                        classroom.flat_rooms())
+        # 调课建议按第一节算，界面会注明"以第 N 节为例"
+        assert ws[0]['suggest_period'] == 1
+
+    def test_different_rooms_not_merged(self, tmp_data):
+        data = self._build(tmp_data)
+        classroom.add_room('实验楼A', '102', total=80)
+        from datetime import date
+        today_wd = date.today().isoweekday()
+        parsed = {'room_label': 'y', 'seats': 80,
+                  'term': {'start': (date.today().isoformat()), 'weeks': 30},
+                  'courses': [{
+                      'day': today_wd, 'period_start': 1, 'period_end': 1,
+                      'week_start': 1, 'week_end': 20, 'name': '别的课',
+                      'teacher': '李乙', 'students': 40}]}
+        schedule.upsert_room('实验楼A', '102', parsed, 'y.xls')
+        repair_log.add_record(classroom='102', symptom='教室总闸跳闸',
+                              conclusion='x', status=repair_log.STATUS_PENDING,
+                              building='实验楼A')
+
+        ws = overview.upcoming_warnings(schedule.load(),
+                                        overview._unresolved_by_room(),
+                                        classroom.flat_rooms())
+        rooms = [x['room'] for x in ws]
+        assert '101' in rooms and '102' in rooms

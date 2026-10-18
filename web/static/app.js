@@ -1303,8 +1303,10 @@ function renderOverviewWarnings(list, d) {
   card.classList.remove('hidden');
 
   const ongoing = list.filter(x => x.state === 'ongoing').length;
-  note.textContent = `共 ${list.length} 节`
-    + (ongoing ? ` · 其中 ${ongoing} 节正在进行` : '');
+  const rooms = list.length;
+  const classes = list.reduce((s, x) => s + (x.class_count || 1), 0);
+  note.textContent = `${rooms} 间教室 · ${classes} 节课`
+    + (ongoing ? ` · 其中 ${ongoing} 间正在进行` : '');
 
   // 分页：一页 10 条，不再用「展开全部」那种一铺到底的做法
   const pg = paginate('warnings', list);
@@ -1318,39 +1320,52 @@ function renderOverviewWarnings(list, d) {
       : x.state === 'upcoming' ? '待开始'
       : x.state === 'past' ? '已结束' : '未知';
 
-    const timeText = x.time && x.time.start
-      ? `${x.time.start}–${x.time.end || ''}`
-      : '';
+    // 节次范围：只有一节时写"第 3 节"，多节时写"第 1–12 节"
+    const from = x.period_from != null ? x.period_from : x.period;
+    const to = x.period_to != null ? x.period_to : from;
+    const periodText = from === to ? `第 ${from} 节` : `第 ${from}–${to} 节`;
 
-    let when = '';
-    if (x.state === 'upcoming' && x.minutes_until != null) {
-      const h = Math.floor(x.minutes_until / 60);
-      const m = x.minutes_until % 60;
-      when = '距开始 ' + (h > 0 ? `${h} 小时 ${m} 分` : `${m} 分`);
+    const count = x.class_count || 1;
+    const c = x.course || {};
+    const names = x.course_names || (c.name ? [c.name] : []);
+
+    // 多节课时不要只写"第一门课 等"，那样读着断句不对
+    let title;
+    if (count > 1) {
+      title = names.length > 1
+        ? `${names[0]} 等 ${names.length} 门课`
+        : (names[0] || '');
+    } else {
+      title = names[0] || c.name || '';
     }
 
-    const c = x.course || {};
+    const badge = count > 1 ? `<span class="warn-count-badge">${count} 节课</span>` : '';
+
     const suggest = (x.suggest || []).length
       ? x.suggest.map(s =>
           `${escapeHtml(s.building)}-${escapeHtml(s.room)}（${s.seats} 座）`
         ).join(' · ')
       : '本时段无空闲教室';
 
+    const suggestNote = count > 1
+      ? `<span class="warn-suggest-note">（以第 ${x.suggest_period} 节为例）</span>`
+      : '';
+
     return `
       <div class="warn-item ${cls}">
         <div class="warn-main">
           <span class="warn-tag">${tag}</span>
           <span class="warn-day">${escapeHtml(x.day_label || '')}</span>
-          <span class="warn-when">第 ${x.period} 节 ${escapeHtml(timeText)}</span>
+          <span class="warn-when">${periodText}</span>
           <span class="warn-room">${escapeHtml(x.building)}-${escapeHtml(x.room)}</span>
-          ${when ? `<span class="warn-count">${when}</span>` : ''}
+          ${badge}
         </div>
         <div class="warn-course">
-          ${escapeHtml(c.name || '')}
-          <span class="warn-meta">${escapeHtml(c.teacher || '')} · ${c.students || 0} 人</span>
+          ${escapeHtml(title)}
+          <span class="warn-meta">最多 ${x.students || 0} 人</span>
         </div>
         <div class="warn-reason">${escapeHtml((x.reasons || []).join('；'))}</div>
-        <div class="warn-suggest">→ 可调课到 ${suggest}</div>
+        <div class="warn-suggest">→ 可调课到 ${suggest}${suggestNote}</div>
       </div>`;
   }).join('') + pagerHtml('warnings', pg.page, pg.pages, pg.total);
 

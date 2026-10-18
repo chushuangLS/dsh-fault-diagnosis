@@ -3594,3 +3594,18 @@ select option:hover {
   padding: 3px 11px;
   margin-left: 4px;
 }
+/* 预警里的「N 节课」标记与合并说明 */
+.warn-count-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, .12);
+  border: 1px solid rgba(245, 158, 11, .25);
+  border-radius: 100px;
+  padding: 2px 9px;
+}
+.warn-suggest-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 6px;
+}

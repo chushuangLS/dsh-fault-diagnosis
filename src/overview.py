@@ -367,9 +367,92 @@ def upcoming_warnings(sched, unresolved, rooms_flat, days=None):
                                              exclude=key),
                 })
 
-    # 进行中排最前；同状态按「哪一天 → 第几节」排
+    # 同一间教室一天只出一条
+    #
+    # 否则 409 一坏，第 1~8 节每节都生成一条，面板上全是同一间教室，
+    # 真正需要看的信息（哪几间受影响）被淹掉了。
+    merged = _merge_by_room_day(out)
+
+    # 进行中排最前；同状态按「哪一天 → 起始节次」排
     order = {'ongoing': 0, 'upcoming': 1, 'unknown': 2, 'past': 3}
-    out.sort(key=lambda x: (order.get(x['state'], 9), x['offset'], x['period']))
+    merged.sort(key=lambda x: (order.get(x['state'], 9), x['offset'],
+                               x['period_from']))
+    return merged
+
+
+def _merge_by_room_day(items):
+    """把 (教室, 日期) 相同的多条预警合成一条"""
+    groups = {}
+    for w in items:
+        key = (w['date'], w['building'], w['room'])
+        groups.setdefault(key, []).append(w)
+
+    out = []
+    for (date, building, room), group in groups.items():
+        group.sort(key=lambda x: x['period'])
+        first = group[0]
+        periods = [x['period'] for x in group]
+
+        # 原因去重合并（同一间教室可能同时跳闸 + 断网）
+        reasons = []
+        for x in group:
+            for r in x.get('reasons') or []:
+                if r not in reasons:
+                    reasons.append(r)
+
+        states = [x['state'] for x in group]
+        if 'ongoing' in states:
+            state = 'ongoing'
+        elif 'upcoming' in states:
+            state = 'upcoming'
+        elif 'unknown' in states:
+            state = 'unknown'
+        else:
+            state = 'past'
+
+        # 人数取最多的那节（最要紧）
+        students = max((x['course'].get('students') or 0) for x in group)
+
+        out.append({
+            'date': date,
+            'offset': first['offset'],
+            'day': first['day'],
+            'day_label': first['day_label'],
+            'week': first['week'],
+            'building': building,
+            'room': room,
+            'period_from': min(periods),
+            'period_to': max(periods),
+            'periods': periods,
+            'class_count': len(group),
+            'state': state,
+            # 保留第一节的课程信息作为代表，另外给出课程名清单
+            'course': first['course'],
+            'course_names': _unique([x['course'].get('name') for x in group]),
+            'students': students,
+            'reasons': reasons,
+            'broken': max((x.get('broken') or 0) for x in group),
+            'available': first.get('available'),
+            'total': first.get('total'),
+            # 调课建议按**第一节**算：合并后只有一个入口，
+            # 用最早那节做代表，界面上会注明
+            'suggest': first.get('suggest') or [],
+            'suggest_period': first['period'],
+            'time': first.get('time') or {},
+        })
+
+    return out
+
+
+def _unique(seq):
+    """去重且保持顺序"""
+    seen = set()
+    out = []
+    for x in seq:
+        if not x or x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
     return out
 
 
