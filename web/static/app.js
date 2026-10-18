@@ -47,6 +47,8 @@ function enterApp(view) {
     // 进入应用时侧边栏保持收起，鼠标靠近右侧再展开
     collapseRail();
     refreshRailStats();
+    // 教室结构可能刚被改过（改名、增删），下拉必须重拉
+    loadRoomPicker();
   }, 380);
 }
 
@@ -970,6 +972,73 @@ function statusClass(status) {
   return STATUS_CLASS[status] || 'st-pending';
 }
 
+/* ============================================================
+   列表分页
+
+   所有会越堆越长的列表都走这里：超过 PAGE_SIZE 条就分页。
+   起因是几个列表用久了会变成几十上百条，一路往下滚很难找东西。
+
+   约定：
+     · 每个列表用唯一的 key 记住自己停在第几页
+     · 只有一页时不显示分页条（不占地方）
+   ============================================================ */
+
+const PAGE_SIZE = 10;
+const pageState = {};   // 列表 key → 当前页（从 0 开始）
+
+/**
+ * 按页切分
+ *
+ * 返回 {slice, page, pages, total}。
+ * 页码越界时自动回到最后一页 —— 删除记录后总数变少会碰到这种情况。
+ */
+function paginate(key, items, size) {
+  const ps = size || PAGE_SIZE;
+  const total = items.length;
+  const pages = Math.max(Math.ceil(total / ps), 1);
+
+  let page = pageState[key] || 0;
+  if (page >= pages) page = pages - 1;
+  if (page < 0) page = 0;
+  pageState[key] = page;
+
+  return {
+    slice: items.slice(page * ps, (page + 1) * ps),
+    page,
+    pages,
+    total,
+  };
+}
+
+/** 分页条 HTML（只有一页时返回空串） */
+function pagerHtml(key, page, pages, total) {
+  if (pages <= 1) return '';
+  return `
+    <div class="pager">
+      <button class="pager-btn" data-pager-page="${page - 1}"
+        ${page === 0 ? 'disabled' : ''}>‹ 上一页</button>
+      <span class="pager-info">第 ${page + 1} / ${pages} 页 · 共 ${total} 条</span>
+      <button class="pager-btn" data-pager-page="${page + 1}"
+        ${page === pages - 1 ? 'disabled' : ''}>下一页 ›</button>
+    </div>`;
+}
+
+/**
+ * 绑定分页按钮
+ *
+ * onGo(page) 由调用方负责"换页并重渲染"。
+ */
+function bindPager(container, key, onGo) {
+  container.querySelectorAll('[data-pager-page]').forEach(btn => {
+    if (btn.disabled) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pageState[key] = parseInt(btn.dataset.pagerPage, 10) || 0;
+      onGo();
+    });
+  });
+}
+
 async function loadRecords() {
   const list = $('#record-list');
   list.innerHTML = skeletonCards(4);
@@ -1024,9 +1093,13 @@ async function loadRecords() {
 
     list.innerHTML = '';
 
+    // 分页：一页 10 条。分组标题在当前页内照常出现，
+    // 跨页的同一个状态会在新一页顶部再出现一次，不碍事。
+    const pg = paginate('records', data.records);
+
     let lastStatus = null;
 
-    data.records.forEach(r => {
+    pg.slice.forEach(r => {
       // 状态切换时插入分组标题
       if (r['状态'] !== lastStatus) {
         lastStatus = r['状态'];
@@ -1132,6 +1205,14 @@ async function loadRecords() {
       });
     });
 
+    // 分页条追加在最后
+    const pagerBox = document.createElement('div');
+    pagerBox.innerHTML = pagerHtml('records', pg.page, pg.pages, pg.total);
+    if (pagerBox.firstElementChild) {
+      list.appendChild(pagerBox.firstElementChild);
+      bindPager(list, 'records', () => loadRecords());
+    }
+
   } catch (err) {
     list.innerHTML = `<div class="empty">读取失败：${escapeHtml(err.message)}</div>`;
   }
@@ -1225,10 +1306,10 @@ function renderOverviewWarnings(list, d) {
   note.textContent = `共 ${list.length} 节`
     + (ongoing ? ` · 其中 ${ongoing} 节正在进行` : '');
 
-  const LIMIT = 5;
-  const shown = list.slice(0, LIMIT);
+  // 分页：一页 10 条，不再用「展开全部」那种一铺到底的做法
+  const pg = paginate('warnings', list);
 
-  box.innerHTML = shown.map(x => {
+  box.innerHTML = pg.slice.map(x => {
     const cls = x.state === 'ongoing' ? 'warn-ongoing'
       : x.state === 'upcoming' ? 'warn-upcoming'
       : x.state === 'past' ? 'warn-past' : 'warn-unknown';
@@ -1259,6 +1340,7 @@ function renderOverviewWarnings(list, d) {
       <div class="warn-item ${cls}">
         <div class="warn-main">
           <span class="warn-tag">${tag}</span>
+          <span class="warn-day">${escapeHtml(x.day_label || '')}</span>
           <span class="warn-when">第 ${x.period} 节 ${escapeHtml(timeText)}</span>
           <span class="warn-room">${escapeHtml(x.building)}-${escapeHtml(x.room)}</span>
           ${when ? `<span class="warn-count">${when}</span>` : ''}
@@ -1270,14 +1352,15 @@ function renderOverviewWarnings(list, d) {
         <div class="warn-reason">${escapeHtml((x.reasons || []).join('；'))}</div>
         <div class="warn-suggest">→ 可调课到 ${suggest}</div>
       </div>`;
-  }).join('');
+  }).join('') + pagerHtml('warnings', pg.page, pg.pages, pg.total);
 
-  if (list.length > LIMIT) {
-    more.classList.remove('hidden');
-    more.textContent = `展开今天全部 ${list.length} 节`;
-  } else {
-    more.classList.add('hidden');
-  }
+  // 旧的「展开全部」不再需要，统一交给分页
+  if (more) more.classList.add('hidden');
+
+  bindPager(box, 'warnings', () => {
+    // 直接用缓存的数据重渲染，不重新请求
+    renderOverviewWarnings(list, d);
+  });
 }
 
 /**
@@ -1287,9 +1370,16 @@ function renderOverviewWarnings(list, d) {
  * 78 人的课坏 2 台照样能上；教师机坏了却一台不缺也上不了。
  * 坏几台放在底部小灰字里，不抢视线。
  */
+// 哪些楼栋被展开了（按楼栋记，互不影响）
+let ovExpanded = new Set();
+// 最近一次渲染用的教室列表 —— 展开/收起时用它原位重渲染
+let ovRooms = [];
+
 function renderOverviewGrid(rooms) {
   const box = $('#ov-grid');
   if (!box) return;
+
+  ovRooms = rooms || [];
 
   // 按教学楼分组，保持原顺序
   const byBuilding = new Map();
@@ -1304,7 +1394,12 @@ function renderOverviewGrid(rooms) {
     // 折叠时优先显示「影响上课」的，其次有损坏的，最后正常的
     const rank = (x) => (x.impact ? 0 : (x.broken || x.facility) ? 1 : 2);
     const sorted = [...list].sort((a, b) => rank(a) - rank(b));
-    const shown = sorted.slice(0, LIMIT);
+
+    // 展开状态按楼栋记，不影响其它楼栋，也不重排数组 ——
+    // 之前是"把展开的楼栋挪到末尾再整份重渲染"，
+    // 结果一展开，这栋楼就跑到另一栋下面去了
+    const expanded = ovExpanded.has(building);
+    const shown = expanded ? sorted : sorted.slice(0, LIMIT);
     const rest = sorted.length - shown.length;
 
     const cells = shown.map(r => {
@@ -1344,9 +1439,9 @@ function renderOverviewGrid(rooms) {
         </div>`;
     }).join('');
 
-    const more = rest > 0
+    const more = sorted.length > LIMIT
       ? `<button class="ov-more-btn" data-expand="${escapeHtml(building)}">
-           展开全部 ${sorted.length} 间
+           ${expanded ? '收起' : `展开全部 ${sorted.length} 间`}
          </button>`
       : '';
 
@@ -1373,15 +1468,13 @@ function renderOverviewGrid(rooms) {
     });
   });
 
-  // 展开：把该楼栋全部教室显示出来
+  // 展开/收起：只改这一栋楼显示几格，不改顺序
   box.querySelectorAll('.ov-more-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const b = btn.dataset.expand;
-      const all = rooms.filter(r => r.building === b);
-      renderOverviewGrid([
-        ...rooms.filter(r => r.building !== b),
-        ...all,
-      ]);
+      if (ovExpanded.has(b)) ovExpanded.delete(b);
+      else ovExpanded.add(b);
+      renderOverviewGrid(ovRooms);
     });
   });
 }
@@ -1550,7 +1643,9 @@ async function loadRepeatedFaults() {
     return;
   }
 
-  box.innerHTML = data.items.map(x => {
+  const pg = paginate('repeat', data.items);
+
+  box.innerHTML = pg.slice.map(x => {
     const span = x.span_days > 0 ? `${x.span_days} 天` : '当天';
     const recur = x.recurring
       ? `<span class="repeat-recur">⚠ 复发 ${x.recur} 次</span>`
@@ -1566,7 +1661,7 @@ async function loadRepeatedFaults() {
         <span class="repeat-count"><b>${x.count}</b> 次 / ${span}</span>
         ${recur}
       </div>`;
-  }).join('');
+  }).join('') + pagerHtml('repeat', pg.page, pg.pages, pg.total);
 
   // 点条目 → 打开该教室详情
   box.querySelectorAll('.repeat-item').forEach(el => {
@@ -1574,6 +1669,8 @@ async function loadRepeatedFaults() {
       gotoRoomDetail(el.dataset.room);
     });
   });
+
+  bindPager(box, 'repeat', () => loadRepeatedFaults());
 }
 
 // 窗口尺寸变化时重绘图表
@@ -2350,6 +2447,7 @@ let pickedRoom = '';
 async function loadRoomPicker() {
   const bSel = $('#pick-building');
   const rSel = $('#pick-room');
+  if (!bSel) return;
 
   try {
     const res = await fetch('/api/classrooms');
@@ -2364,12 +2462,28 @@ async function loadRoomPicker() {
     // 如果没有数据，给出提示
     if (!d.buildings.length) {
       bSel.innerHTML = '<option value="">（请先在后台添加教学楼）</option>';
+      pickedBuilding = '';
+      rSel.innerHTML = '<option value="">请先选教学楼</option>';
+      rSel.disabled = true;
+      return;
     }
 
-    // 恢复之前的选择
-    if (pickedBuilding) {
+    // 之前选的教学楼可能已经被改名或删掉了 —— 这时候不能直接用它去查教室，
+    // 否则会一直显示"该楼暂无教室"，看起来像选不了东西
+    const stillThere = pickedBuilding &&
+      d.buildings.some(b => b.name === pickedBuilding);
+    if (pickedBuilding && !stillThere) {
+      pickedBuilding = '';
+      pickedRoom = '';
+    }
+
+    if (stillThere) {
       bSel.value = pickedBuilding;
       fillRooms(d, pickedBuilding);
+    } else {
+      bSel.value = '';
+      rSel.innerHTML = '<option value="">请先选教学楼</option>';
+      rSel.disabled = true;
     }
   } catch { /* 忽略 */ }
 }
@@ -2436,6 +2550,10 @@ $('#toggle-add-task').addEventListener('click', () => {
   const form = $('#task-form');
   const hidden = form.classList.toggle('hidden');
   if (!hidden) {
+    // 打开时重新拉一次教学楼 —— 教室结构可能刚被改过，
+    // 只在页面加载时拉一次的话，下拉里会留着已经不存在的旧名字，
+    // 选完查不到教室，看起来就是"选不了东西"
+    refreshTaskOptions();
     form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     $('#tf-teacher').focus();
   }
@@ -2547,7 +2665,10 @@ async function loadTasks() {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    list.innerHTML = d.tasks.map(t => {
+    // 分页：一页 10 条
+    const pg = paginate('tasks', d.tasks);
+
+    list.innerHTML = pg.slice.map(t => {
       const isDone = t.status === '已完成';
       const isOverdue = !isDone && t.due && t.due.slice(0, 10) < today;
       const cls = (isDone ? 'done' : 'pending') + (isOverdue ? ' overdue' : '');
@@ -2613,6 +2734,14 @@ async function loadTasks() {
       });
     });
 
+    // 分页条
+    if (pg.pages > 1) {
+      const box = document.createElement('div');
+      box.innerHTML = pagerHtml('tasks', pg.page, pg.pages, pg.total);
+      list.appendChild(box.firstElementChild);
+      bindPager(list, 'tasks', () => loadTasks());
+    }
+
   } catch (err) {
     list.innerHTML = `<div class="empty">加载失败：${escapeHtml(err.message)}</div>`;
   }
@@ -2620,6 +2749,18 @@ async function loadTasks() {
 
 // 初始化报备表单的选项
 async function initTaskForm() {
+  await refreshTaskOptions();
+}
+
+/**
+ * 重新拉取报备表单的下拉选项
+ *
+ * 为什么单独抽出来：教学楼和教室随时可能被改动（改名、增删），
+ * 而下拉框是"一次性填好"的 —— 页面开着不动，数据改了，
+ * 下拉里还是旧名字，选完查不到教室，用户看到的就是"选不了东西"。
+ * 所以每次打开表单都重拉一遍。
+ */
+async function refreshTaskOptions() {
   try {
     const res = await fetch('/api/tasks');
     const d = await res.json();
@@ -2634,292 +2775,524 @@ async function initTaskForm() {
     // 教学楼下拉
     const cres = await fetch('/api/classrooms');
     const cd = await cres.json();
+
+    const prev = $('#tf-building').value;
     $('#tf-building').innerHTML = '<option value="">请选择</option>' +
       cd.buildings.map(b =>
         `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`
       ).join('');
+
+    const stillThere = prev && cd.buildings.some(b => b.name === prev);
+    if (stillThere) {
+      $('#tf-building').value = prev;
+      $('#tf-building').dispatchEvent(new Event('change'));
+    } else {
+      // 之前选的教学楼已经不在了，把教室框也重置，
+      // 免得留一个禁用的空下拉让人以为坏了
+      $('#tf-building').value = '';
+      $('#tf-room').innerHTML = '<option value="">请先选教学楼</option>';
+      $('#tf-room').disabled = true;
+    }
   } catch { /* 忽略 */ }
 }
 
 /* ============================================================
-   课表与空余教室
+   课表与调课
 
-   产品的核心问题只有一个：**现在这个时间，哪间教室空着？**
-   教室突然不能用了，学生站在门口，课马上要开始 ——
-   这时要的不是"这台怎么修"，而是"这节课去哪上"。
+   这一页的核心问题：**教室坏了，这节课能挪到哪？**
 
-   所以这一页不是"课表管理工具"，而是应急调课时的查询工具：
-   打开就自动按当前时间查一次，不用先点三下。
+   设计上的关键改变：不再"选条件 → 点查询"。
+   打开就摊开一整天的课表（教室 × 节次），空格子就是空闲。
+   点一门课 → 直接给能挪过去的教室；
+   点一个空格 → 看这一节还有哪些教室空着。
+
+   为什么不用查询条：
+   日常调课要一眼看到全天的排布，逼用户先选教学楼/教室/星期/节次
+   再点一次查询，等于把找东西的活儿又推回给他。
    ============================================================ */
 
-const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四',
-                  '星期五', '星期六', '星期日'];
-const PERIOD_SECTIONS = [
-  { name: '上午', periods: [1, 2, 3, 4] },
-  { name: '下午', periods: [5, 6, 7, 8] },
-  { name: '晚上', periods: [9, 10, 11, 12] },
-];
+const SCHED_DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const SCHED_PERIODS = 12;
 
-let schedInited = false;      // 下拉框是否已经填过选项
-let schedSummary = null;      // 最近一次 summary
-let schedPeriods = {};        // 已保存的作息时间
-let schedTerm = {};           // 学期信息
+// 当前查看的日期与周次
+let schedDay = 0;          // 0 表示还没初始化
+let schedWeek = 0;
+let schedMatrix = null;    // 最近一次拉到的整张表
+let schedInited = false;
+let schedPeriods = {};     // 作息时间（用于算连排/连空）
+let schedPicked = false;   // 用户是否手动选过日期
+let schedAutoJumped = false;  // 是否因为"今天没课"被自动跳过
+let schedTerm = {};
 
-/** 节次的可读标签，带上时间（有配置时） */
-function periodLabel(p) {
-  const t = schedPeriods[String(p)];
-  if (t && t.start && t.end) return `第 ${p} 节 ${t.start}–${t.end}`;
-  return `第 ${p} 节`;
+/** 教室号 → 楼层（去掉字母后第一位数字：C104 → 1，402 → 4） */
+function schedFloor(room) {
+  const m = String(room || '').match(/\d+/);
+  return m ? parseInt(m[0][0], 10) : null;
 }
 
-/** 把下拉框填好（只填一次） */
-function initScheduleControls() {
-  if (schedInited) return;
-  schedInited = true;
-
-  $('#sched-day').innerHTML = WEEKDAYS.map((w, i) =>
-    `<option value="${i + 1}">${w}</option>`).join('');
-
-  $('#sched-period').innerHTML = PERIOD_SECTIONS.map(s =>
-    `<optgroup label="${s.name}">` +
-    s.periods.map(p => `<option value="${p}">第 ${p} 节</option>`).join('') +
-    '</optgroup>'
-  ).join('');
-
-  $('#sched-min-seats').addEventListener('change', () => { doScheduleQuery(); });
-  $('#sched-query-btn').addEventListener('click', () => doScheduleQuery());
-  $('#sched-now-btn').addEventListener('click', () => {
-    fillNow();
-    doScheduleQuery();
-  });
-
-  $('#sched-import-btn').addEventListener('click', openImportModal);
-  $('#sched-period-btn').addEventListener('click', openPeriodModal);
-
-  initImportModal();
-  initPeriodModal();
-  initRoomModal();
+/** 某间教室某一节的课（同格可能有多门不同周次的课，接口已按周次筛过） */
+function schedCourseAt(building, room, period) {
+  const list = (schedMatrix && schedMatrix.courses) || [];
+  const hit = list.filter(c =>
+    c.building === building && c.room === room &&
+    c.p <= period && period <= c.p_end);
+  return hit.length ? hit[0] : null;
 }
 
-/**
- * 填充「周次」下拉
- *
- * 选项数量取决于学期总周数，而这个值要等接口返回才知道，
- * 所以不能放在 initScheduleControls 里一次填死。
- * （漏了这一步的话，周次下拉是空的，查询参数 week 会变成 NaN，
- *   接口直接 400，页面上看起来就是"点了没反应"。）
- */
-function fillWeekOptions() {
-  const sel = $('#sched-week');
-  if (!sel) return;
-
-  const weeks = Math.max(parseInt(schedTerm.weeks, 10) || 20, 1);
-  const current = parseInt(sel.value, 10);
-
-  sel.innerHTML = Array.from({ length: weeks }, (_, i) =>
-    `<option value="${i + 1}">第 ${i + 1} 周</option>`).join('');
-
-  // 尽量保留用户已经选过的周次
-  if (current >= 1 && current <= weeks) {
-    sel.value = String(current);
+/** 这节课实际连排几节（同一门课、同一老师连续排） */
+function schedSpan(building, room, period) {
+  const c0 = schedCourseAt(building, room, period);
+  if (!c0) return 0;
+  let n = 1;
+  for (let p = period + 1; p <= SCHED_PERIODS; p++) {
+    const c = schedCourseAt(building, room, p);
+    if (!c || c.name !== c0.name || c.teacher !== c0.teacher) break;
+    n++;
   }
+  return n;
 }
 
-/** 按当前时间填好三个下拉框 */
-function fillNow() {
-  const now = new Date();
-  // JS 的 getDay()：周日是 0，这里要 1-7（周一到周日）
-  const day = now.getDay() === 0 ? 7 : now.getDay();
-  $('#sched-day').value = String(day);
+/** 从 period 起连续空闲几节 */
+function schedFreeRun(building, room, period) {
+  let n = 0;
+  for (let p = period; p <= SCHED_PERIODS; p++) {
+    if (schedCourseAt(building, room, p)) break;
+    n++;
+  }
+  return n;
+}
 
-  if (schedSummary && schedSummary.week) {
-    const w = Math.min(Math.max(schedSummary.week, 1),
-                       Math.max(schedTerm.weeks || 20, 1));
-    $('#sched-week').value = String(w);
+/** 这段区间是否全空 */
+function schedFreeSpan(building, room, p0, span) {
+  for (let p = p0; p < p0 + span; p++) {
+    if (schedCourseAt(building, room, p)) return false;
   }
-  if (schedSummary && schedSummary.period) {
-    $('#sched-period').value = String(schedSummary.period);
-  }
+  return true;
 }
 
 /** 进入课表页 */
 async function loadSchedulePage() {
   initScheduleControls();
 
-  try {
-    const res = await fetch('/api/schedule/summary');
-    schedSummary = await res.json();
-  } catch {
-    schedSummary = null;
+  // 首次进入：定位到「现在」
+  if (!schedDay) {
+    schedDay = _nowWeekday();
+    schedWeek = 0;
   }
 
-  // 作息时间单独取一份，用来在下拉框里显示具体时间
-  try {
-    const res = await fetch('/api/schedule/periods');
-    const d = await res.json();
-    schedPeriods = d.periods || {};
-    schedTerm = d.term || {};
-  } catch {
-    schedPeriods = {};
-    schedTerm = {};
-  }
+  await fetchMatrix();
 
-  renderTermLine();
-  fillWeekOptions();
-
-  const empty = $('#sched-empty');
-  const results = $('#sched-results');
-  const hasAny = schedSummary && schedSummary.rooms > 0;
-
-  if (!hasAny) {
-    empty.classList.remove('hidden');
-    results.innerHTML = '';
-  } else {
-    empty.classList.add('hidden');
-    fillNow();
-    doScheduleQuery();
+  // 今天没课（周末、假期）时自动跳到下一个有课的日子。
+  // 打开看到一张全空的表没有意义，直接给最近的上课日更有用。
+  if (schedMatrix && (schedMatrix.courses || []).length === 0 && !schedPicked) {
+    for (let k = 1; k <= 7; k++) {
+      const d = ((schedDay - 1 + k) % 7) + 1;
+      const data = await getMatrix(d, schedWeek);
+      if (data && (data.courses || []).length) {
+        schedDay = d;
+        schedAutoJumped = true;
+        applyMatrix(data);
+        break;
+      }
+    }
   }
 }
 
-/** 顶部那行学期信息 */
-function renderTermLine() {
+/** 只取数据，不动界面 */
+async function getMatrix(day, week) {
+  try {
+    const params = new URLSearchParams({ day });
+    if (week) params.set('week', week);
+    const res = await fetch('/api/schedule/matrix?' + params);
+    const d = await res.json();
+    return d.error ? null : d;
+  } catch {
+    return null;
+  }
+}
+
+/** 把数据装进状态并渲染 */
+function applyMatrix(d) {
+  schedMatrix = d;
+  schedWeek = d.week;
+  schedPeriods = d.periods || {};
+  schedTerm = d.term || {};
+
+  const hasAny = (d.rooms || []).length > 0;
+  $('#sched-empty').classList.toggle('hidden', hasAny);
+  $('#sched-main').classList.toggle('hidden', !hasAny);
+  if (!hasAny) return;
+
+  renderSchedTermLine();
+  renderSchedDayBar();
+  renderSchedTable();
+
+  $('#sched-detail').innerHTML = '';
+}
+
+function _nowWeekday() {
+  const d = new Date().getDay();
+  return d === 0 ? 7 : d;
+}
+
+async function fetchMatrix() {
+  const emptyEl = $('#sched-empty');
+  const main = $('#sched-main');
+
+  const d = await getMatrix(schedDay, schedWeek);
+
+  if (!d) {
+    if (main) main.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    const p = emptyEl.querySelector('p');
+    if (p) p.textContent = '读取失败，请刷新重试';
+    return;
+  }
+
+  applyMatrix(d);
+}
+
+function initScheduleControls() {
+  if (schedInited) return;
+  schedInited = true;
+
+  initImportModal();
+  initPeriodModal();
+  initRoomModal();
+
+  const imp = $('#sched-import-btn');
+  if (imp) imp.addEventListener('click', openImportModal);
+  const per = $('#sched-period-btn');
+  if (per) per.addEventListener('click', openPeriodModal);
+}
+
+function renderSchedTermLine() {
   const el = $('#sched-term-line');
   if (!el) return;
 
-  const start = schedTerm.start || '';
-  const weeks = schedTerm.weeks || 0;
-  const week = (schedSummary && schedSummary.week) || 0;
-  const rooms = (schedSummary && schedSummary.rooms) || 0;
-  const courses = (schedSummary && schedSummary.course_count) || 0;
+  const t = schedTerm || {};
+  const rooms = (schedMatrix.rooms || []).length;
 
-  if (!start) {
-    el.textContent = '还没配置学期';
+  if (!t.start) {
+    el.textContent = '还没配置学期 —— 去「作息设置」补上';
     return;
   }
 
-  let weekText;
-  if (week === 0) {
-    weekText = `还没开学（${start} 开始）`;
-  } else if (weeks && week > weeks) {
-    // 放假期间也要能查询 —— 那会儿教室全空，查了反而有用
-    weekText = `第 ${week} 周（已超出本学期 ${weeks} 周）`;
-  } else {
-    weekText = `第 ${week} 周`;
-  }
-
-  el.textContent = `${start} 起 ${weeks} 周 · ${weekText} · `
-    + `已导入 ${rooms} 间 / ${courses} 条课程`;
+  const now = schedMatrix.now || {};
+  el.textContent = `${t.start} 起 ${t.weeks || 0} 周 · 第 ${schedWeek} 周`
+    + ` · 已导入 ${rooms} 间`
+    + (now.week ? ` · 本周是第 ${now.week} 周` : '');
 }
 
-/** 执行查询 */
-async function doScheduleQuery() {
-  const box = $('#sched-results');
-  if (!box) return;
+function renderSchedDayBar() {
+  const bar = $('#sched-daybar');
+  if (!bar) return;
 
-  const day = parseInt($('#sched-day').value, 10);
-  const period = parseInt($('#sched-period').value, 10);
-  const week = parseInt($('#sched-week').value, 10);
-  const minSeats = parseInt($('#sched-min-seats').value, 10) || 0;
+  const now = (schedMatrix && schedMatrix.now) || {};
+  const today = now.day;
 
-  const params = new URLSearchParams({
-    day, period, week, min_seats: minSeats,
-  });
+  const chips = SCHED_DAYS.map((name, i) => {
+    const day = i + 1;
+    const isToday = day === today;
+    const active = day === schedDay;
+    return `
+      <button class="sday${active ? ' active' : ''}" data-sday="${day}">
+        ${name}${isToday ? '<span class="sday-tag">今天</span>' : ''}
+      </button>`;
+  }).join('');
 
-  box.innerHTML = '<div class="sched-loading">查询中…</div>';
+  const weeks = Math.max(parseInt((schedTerm || {}).weeks, 10) || 20, 1);
+  const opts = Array.from({ length: weeks }, (_, i) => {
+    const w = i + 1;
+    return `<option value="${w}"${w === schedWeek ? ' selected' : ''}>第 ${w} 周</option>`;
+  }).join('');
 
-  let d;
-  try {
-    const res = await fetch('/api/schedule/query?' + params);
-    d = await res.json();
-    if (d.error) throw new Error(d.error);
-  } catch (err) {
-    box.innerHTML = `<div class="sched-loading">查询失败：${escapeHtml(err.message)}</div>`;
-    return;
-  }
+  const jumpNote = schedAutoJumped
+    ? `<span class="sjump">今天没课，已跳到 ${SCHED_DAYS[schedDay - 1]}</span>`
+    : '';
 
-  renderScheduleResults(d, minSeats);
-}
+  bar.innerHTML = chips + jumpNote + `
+    <span class="sweek">周次 <select id="sched-week">${opts}</select></span>`;
 
-/** 渲染三栏结果 */
-function renderScheduleResults(d, minSeats) {
-  const box = $('#sched-results');
-
-  const free = d.free || [];
-  const busy = d.busy || [];
-  const unknown = d.no_schedule || [];
-
-  const seatsNote = minSeats > 0 ? ` ≥${minSeats} 座` : '';
-
-  const freeHtml = free.length
-    ? free.map(r => `
-        <div class="sched-room sched-free" data-building="${escapeHtml(r.building)}"
-             data-room="${escapeHtml(r.room)}">
-          <span class="sr-name">${escapeHtml(r.room)}</span>
-          <span class="sr-seats">${r.seats || 0} 座</span>
-        </div>`).join('')
-    : `<div class="sched-none">没有符合条件的空闲教室${seatsNote}</div>`;
-
-  const busyHtml = busy.length
-    ? busy.map(r => {
-        const c = r.course || {};
-        return `
-        <div class="sched-room sched-busy" data-building="${escapeHtml(r.building)}"
-             data-room="${escapeHtml(r.room)}">
-          <div class="sr-top">
-            <span class="sr-name">${escapeHtml(r.room)}</span>
-            <span class="sr-seats">${r.seats || 0} 座</span>
-          </div>
-          <div class="sr-course">${escapeHtml(c.name || '')}</div>
-          <div class="sr-meta">
-            ${escapeHtml(c.teacher || '')} · ${c.students || 0} 人
-            · ${c.week_start}-${c.week_end} 周
-          </div>
-        </div>`;
-      }).join('')
-    : `<div class="sched-none">这一节没有教室在上课</div>`;
-
-  box.innerHTML = `
-    <div class="sched-col">
-      <div class="sched-col-head">
-        <span class="sch-dot sch-dot-free"></span>
-        空闲 ${free.length} 间${seatsNote}
-      </div>
-      <div class="sched-room-list">${freeHtml}</div>
-    </div>
-    <div class="sched-col">
-      <div class="sched-col-head">
-        <span class="sch-dot sch-dot-busy"></span>
-        占用中 ${busy.length} 间
-      </div>
-      <div class="sched-room-list">${busyHtml}</div>
-    </div>
-    <div class="sched-col sched-col-unknown">
-      <div class="sched-col-head">
-        <span class="sch-dot sch-dot-unknown"></span>
-        未导入课表 ${unknown.length} 间
-      </div>
-      <div class="sched-unknown-note">
-        这些教室没导入课表，<b>无法判断有没有课</b>，所以不列进空闲。
-      </div>
-      <div class="sched-room-list">
-        ${unknown.length
-          ? unknown.map(r => `
-              <div class="sched-room sched-unknown"
-                   data-building="${escapeHtml(r.building)}"
-                   data-room="${escapeHtml(r.room)}">
-                <span class="sr-name">${escapeHtml(r.room)}</span>
-                <span class="sr-seats">${r.seats || 0} 座</span>
-              </div>`).join('')
-          : '<div class="sched-none">全部教室都已导入课表</div>'}
-      </div>
-    </div>`;
-
-  // 点任意教室 → 看它本周的课表
-  box.querySelectorAll('.sched-room').forEach(el => {
-    el.addEventListener('click', () => {
-      openRoomSchedule(el.dataset.building, el.dataset.room);
+  bar.querySelectorAll('[data-sday]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      schedDay = parseInt(btn.dataset.sday, 10);
+      schedPicked = true;
+      schedAutoJumped = false;
+      fetchMatrix();
     });
   });
+
+  const sel = $('#sched-week');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      schedWeek = parseInt(sel.value, 10) || schedWeek;
+      fetchMatrix();
+    });
+  }
+}
+
+function renderSchedTable() {
+  const thead = $('#sched-thead');
+  const tbody = $('#sched-tbody');
+  if (!thead || !tbody) return;
+
+  const now = (schedMatrix && schedMatrix.now) || {};
+  const isToday = schedDay === now.day;
+
+  // 表头：第 N 节 + 时间
+  thead.innerHTML = '<th></th>' + Array.from({ length: SCHED_PERIODS }, (_, i) => {
+    const p = i + 1;
+    const t = schedPeriods[String(p)] || {};
+    const cls = (isToday && p === now.period) ? ' class="now"' : '';
+    return `<th${cls}><span class="pno">第 ${p} 节</span>${escapeHtml(t.start || '')}</th>`;
+  }).join('');
+
+  // 按教学楼分组
+  const byBuilding = new Map();
+  (schedMatrix.rooms || []).forEach(r => {
+    if (!byBuilding.has(r.building)) byBuilding.set(r.building, []);
+    byBuilding.get(r.building).push(r);
+  });
+
+  // 有「影响上课」级故障的教室 —— 接口已按 整间跳闸 / 整间断网 / 教师机 判好。
+  // 这些教室整行染红：本来就不能用，空着也不该被当成调课候选。
+  const faultSet = new Set(
+    (schedMatrix.rooms || [])
+      .filter(r => r.fault)
+      .map(r => r.building + '|' + r.name)
+  );
+
+  let html = '';
+  for (const [building, list] of byBuilding) {
+    html += `<tr class="shead"><td colspan="${SCHED_PERIODS + 1}">${escapeHtml(building)}</td></tr>`;
+
+    for (const r of list) {
+      const key = building + '|' + r.name;
+      const fault = faultSet.has(key);
+
+      html += `<tr class="${fault ? 'sfault' : ''}">`;
+      html += `<th class="sroom">${escapeHtml(r.name)}`
+            + `<span class="sr-seats"> ${r.total}座</span></th>`;
+
+      // 先把每一节有没有课算出来，再把连续的同一门课合并成格
+      const slots = [];
+      for (let p = 1; p <= SCHED_PERIODS; p++) {
+        slots.push(schedCourseAt(building, r.name, p));
+      }
+
+      let i = 0;
+      while (i < SCHED_PERIODS) {
+        const cur = slots[i];
+        let span = 1;
+        while (i + span < SCHED_PERIODS && cur && slots[i + span] &&
+               slots[i + span].name === cur.name &&
+               slots[i + span].teacher === cur.teacher) {
+          span++;
+        }
+        const p = i + 1;
+
+        if (cur) {
+          html += `<td class="scell busy" colspan="${span}"
+                       data-building="${escapeHtml(building)}"
+                       data-room="${escapeHtml(r.name)}"
+                       data-p="${p}" data-busy="1">
+                     <div class="scn">${escapeHtml(cur.name)}</div>
+                     <div class="scm">${cur.students}人</div>
+                   </td>`;
+        } else {
+          html += `<td class="scell free" colspan="${span}" data-p="${p}"></td>`;
+        }
+        i += span;
+      }
+      html += '</tr>';
+    }
+  }
+  tbody.innerHTML = html;
+
+  // 点表头 → 看这一节的空闲教室
+  thead.querySelectorAll('th').forEach((th, idx) => {
+    if (!idx) return;
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => showSchedPeriod(idx));
+  });
+
+  // 点格子 → 有课给调课建议，空闲看该节全貌
+  tbody.querySelectorAll('.scell').forEach(td => {
+    td.addEventListener('click', () => {
+      if (td.dataset.busy) {
+        showSchedMove(td.dataset.building, td.dataset.room,
+                      parseInt(td.dataset.p, 10));
+      } else {
+        showSchedPeriod(parseInt(td.dataset.p, 10));
+      }
+    });
+  });
+}
+
+/* -------- 调课建议 -------- */
+
+function showSchedMove(building, room, period) {
+  const c = schedCourseAt(building, room, period);
+  if (!c) return;
+
+  const source = (schedMatrix.rooms || []).find(
+    r => r.building === building && r.name === room) || {};
+  const span = schedSpan(building, room, period) || 1;
+
+  renderSchedMove(building, room, period, c, span, source.total || 0);
+}
+
+function renderSchedMove(building, room, period, course, span, total) {
+  const box = $('#sched-detail');
+  if (!box) return;
+
+  const floor = schedFloor(room);
+
+  const rows = [];
+  const reasons = { seats: 0, busy: 0, fault: 0, other: 0 };
+
+  (schedMatrix.rooms || []).forEach(r => {
+    if (r.building === building && r.name === room) return;   // 跳过自己
+
+    if (r.total < course.students) { reasons.seats++; return; }
+    if (!schedFreeSpan(r.building, r.name, period, span)) { reasons.busy++; return; }
+
+    const rf = schedFloor(r.name);
+    let where, tier;
+    if (r.building !== building) { where = '另一栋楼'; tier = 2; }
+    else if (rf === floor) { where = '同层'; tier = 0; }
+    else if (rf !== null && floor !== null) {
+      where = rf > floor ? '楼上' : '楼下'; tier = 1;
+    } else { where = '同楼'; tier = 1; }
+
+    rows.push({
+      name: r.name, seats: r.total,
+      run: schedFreeRun(r.building, r.name, period),
+      where, tier,
+    });
+  });
+
+  // 同层优先 → 座位最接近 → 连续空闲最多
+  rows.sort((a, b) => a.tier - b.tier
+    || (a.seats - course.students) - (b.seats - course.students)
+    || b.run - a.run);
+
+  const list = rows.length
+    ? `<div class="scand">${rows.slice(0, 8).map((r, i) => `
+        <div class="sc${i === 0 ? ' best' : ''}">
+          <span class="crank">${i === 0 ? '★' : ''}</span>
+          <span class="cname">${escapeHtml(r.name)}</span>
+          <span class="cseats"><b>${r.seats}</b> 座</span>
+          <span class="cfree">第 ${period}–${period + span - 1} 节全空 · 连空 ${r.run} 节</span>
+          <span class="cwhere">${r.where}</span>
+        </div>`).join('')}</div>`
+    : '<div class="sched-none">没有符合条件的教室</div>';
+
+  const ex = [];
+  if (reasons.seats) ex.push(`${reasons.seats} 间座位不足 ${course.students} 人`);
+  if (reasons.busy) ex.push(`${reasons.busy} 间目标时段有课`);
+
+  const t0 = schedPeriods[String(period)] || {};
+  const t1 = schedPeriods[String(period + span - 1)] || {};
+
+  box.innerHTML = `
+    <div class="sdetail">
+      <div class="sdetail-head">
+        调课建议
+        <span class="sdetail-sub">${SCHED_DAYS[schedDay - 1]}</span>
+        <button class="sdetail-close" id="sched-detail-close">✕</button>
+      </div>
+
+      <div class="starget">
+        <div class="tname">${escapeHtml(course.name)}</div>
+        <div class="tmeta">
+          ${escapeHtml(building)}-${escapeHtml(room)} ·
+          第 ${period}–${period + span - 1} 节 · ${escapeHtml(course.teacher)} ·
+          ${course.students} 人
+        </div>
+      </div>
+
+      <div class="sask">
+        挪到哪一节
+        <select class="psel" id="sched-move-period">
+          ${Array.from({ length: SCHED_PERIODS }, (_, i) => {
+            const p = i + 1;
+            const t = schedPeriods[String(p)] || {};
+            return `<option value="${p}"${p === period ? ' selected' : ''}>
+              第 ${p} 节 ${escapeHtml(t.start || '')}–${escapeHtml(t.end || '')}</option>`;
+          }).join('')}
+        </select>
+        <span class="sask-note">需要 ${span} 节连排 · 座位 ≥ ${course.students}</span>
+      </div>
+
+      <div class="ssec">可以挪到（${escapeHtml(t0.start || '')}–${escapeHtml(t1.end || '')}）</div>
+      ${list}
+
+      ${ex.length ? `<div class="sexcluded">已排除：<b>${ex.join(' · ')}</b></div>` : ''}
+    </div>`;
+
+  const close = $('#sched-detail-close');
+  if (close) close.addEventListener('click', () => { box.innerHTML = ''; });
+
+  const sel = $('#sched-move-period');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      const p = parseInt(sel.value, 10);
+      // 换目标节次后，源课程还是同一门，连排长度不变
+      renderSchedMove(building, room, p, course, span, total);
+    });
+  }
+}
+
+/* -------- 单节全貌（点空格子） -------- */
+
+function showSchedPeriod(p) {
+  const box = $('#sched-detail');
+  if (!box) return;
+
+  const all = (schedMatrix.rooms || []);
+  const busy = (schedMatrix.courses || []).filter(
+    c => c.p <= p && p <= c.p_end);
+
+  const busyKeys = new Set(busy.map(c => c.building + '|' + c.room));
+
+  const free = all.filter(r => !busyKeys.has(r.building + '|' + r.name));
+  free.sort((a, b) => a.total - b.total);
+
+  const t = schedPeriods[String(p)] || {};
+
+  box.innerHTML = `
+    <div class="sdetail">
+      <div class="sdetail-head">
+        第 ${p} 节 ${escapeHtml(t.start || '')}–${escapeHtml(t.end || '')}
+        <span class="sdetail-sub">
+          ${SCHED_DAYS[schedDay - 1]} · 空闲 ${free.length} 间 / 上课 ${busyKeys.size} 间
+        </span>
+        <button class="sdetail-close" id="sched-detail-close">✕</button>
+      </div>
+
+      <div class="ssec">空闲教室（按座位数升序）</div>
+      ${free.length ? `<div class="sfreegrid">${free.map(r => `
+        <div class="sfree">
+          <div class="fn">${escapeHtml(r.name)}</div>
+          <div class="fs">${r.total}<span class="fu"> 座</span></div>
+          <div class="fu">${escapeHtml(r.building)}</div>
+        </div>`).join('')}</div>`
+        : '<div class="sched-none">本时段没有空闲教室</div>'}
+
+      <div class="ssec">正在上课</div>
+      ${busy.length ? `<div class="sbusylist">${busy.map(c => `
+        <div class="sbrow">
+          <span class="broom">${escapeHtml(c.room)}</span>
+          <span class="bcourse">${escapeHtml(c.name)}</span>
+          <span class="bmeta">${escapeHtml(c.teacher)} · ${c.students} 人</span>
+        </div>`).join('')}</div>`
+        : '<div class="sched-none">本时段没有课</div>'}
+    </div>`;
+
+  const close = $('#sched-detail-close');
+  if (close) close.addEventListener('click', () => { box.innerHTML = ''; });
 }
 
 /* -------- 导入课表 -------- */

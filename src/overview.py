@@ -33,6 +33,13 @@ UNRESOLVED = [repair_log.STATUS_PENDING,
               repair_log.STATUS_SELF_FIX,
               repair_log.STATUS_REPORTED]
 
+# 预警往后看几天
+#
+# 只看今天不行：周日晚上打开，今天没课就整块空白，
+# 而明天一早八点的课此刻就受着故障影响。
+# 两天足够"提前知道"，再长就变成排班表了。
+WARN_DAYS = 2
+
 # 整体跳闸的关键词
 #
 # 「短路」「漏电」也算：出现这些词时总闸必然合不上，
@@ -47,6 +54,13 @@ _BREAKER_WORDS = ['总闸', '跳闸', '没电', '停电', '断电',
 _TEACHER_PC_WORDS = ['教师机', '教师电脑', '教师用机', '教师端',
                      '讲台', '教师台']
 
+# 整间断网的关键词
+#
+# 机房课基本都要联网，整间上不了网等于上不了课。
+# 只在「故障对象 = 教室设施」时才认 ——
+# 否则"我这台网口坏了"也会被算成整间不能用。
+_NETWORK_WORDS = ['交换机', '路由器', '光猫', '上联', '教室网络', '整间断网']
+
 
 def _text(record):
     return ((record.get('故障现象') or '') + ' '
@@ -57,6 +71,18 @@ def is_breaker_trip(record):
     """这条故障是不是「整间跳闸」级别"""
     t = _text(record)
     return any(w in t for w in _BREAKER_WORDS)
+
+
+def is_network_outage(record):
+    """这条故障是不是「整间断网」"""
+    try:
+        if not repair_log.is_facility(record):
+            return False
+    except Exception:
+        return False
+
+    t = _text(record)
+    return any(w in t for w in _NETWORK_WORDS)
 
 
 def is_teacher_pc_fault(record):
@@ -108,6 +134,10 @@ def room_impact(records, total, students=None, has_class=False):
 
     if any(is_breaker_trip(r) for r in records):
         reasons.append('整间跳闸')
+
+    # 整间断网：交换机 / 上联坏了，机房课基本都要联网，等于上不了课
+    if any(is_network_outage(r) for r in records):
+        reasons.append('整间断网')
 
     if any(is_teacher_pc_fault(r) for r in records):
         reasons.append('教师机故障')
@@ -180,7 +210,7 @@ def overview():
     return {
         'kpi': _kpi(room_rows, unresolved),
         'rooms': room_rows,
-        'warnings': today_warnings(sched, unresolved, rooms_flat),
+        'warnings': upcoming_warnings(sched, unresolved, rooms_flat),
         'categories': category_distribution(),
         'trend': trend(days=14),
         'term': sched.get('term') or {},
@@ -225,91 +255,133 @@ def _kpi(room_rows, unresolved):
     }
 
 
-def today_warnings(sched, unresolved, rooms_flat):
+def upcoming_warnings(sched, unresolved, rooms_flat, days=None):
     """
-    今天受影响的课
+    未来若干天内受影响的课
 
-    遍历今天每一节有课的教室，判断是否会受故障影响，命中就生成一条预警。
+    为什么不是只看今天：
+      周日晚上打开系统，今天没课 → 什么都看不到，
+      但明天一早八点就有课，而教室的故障现在就还在。
+      预警的意义是"提前知道"，所以至少要看今天 + 明天。
 
     同一间教室一天可能有多节命中 —— 每节课的选课人数不同，
     可能第 1 节够用、第 3 节就超了，所以必须逐节判断。
+
+    参数：
+      days - 往后看几天，默认 WARN_DAYS
+
+    返回列表，每项带上具体日期与「今天/明天」标签。
     """
+    from datetime import date, timedelta
+
+    days = WARN_DAYS if days is None else days
+
     rooms_data = sched.get('rooms') or {}
     periods = sched.get('periods') or {}
     term = sched.get('term') or {}
     weeks = int(term.get('weeks') or 0)
-    week = schedule.current_week(sched)
 
-    if not week or (weeks and week > weeks):
-        return []
-
-    day = _today_weekday()
     now_min = _now_minutes()
+    now_period = schedule.current_period(sched)
     total_by_room = {
         schedule.room_key(r['building'], r['name']): r.get('total', 0)
         for r in rooms_flat
     }
 
     out = []
-    for key, rd in rooms_data.items():
-        recs = unresolved.get(key)
-        if not recs:
+    today = date.today()
+
+    for offset in range(max(days, 1)):
+        d = today + timedelta(days=offset)
+
+        # 每一天的周次可能不同（周日跨到下一周），必须按日期各算一次
+        week = schedule.current_week(sched, d)
+        if not week:
+            continue
+        if weeks and week > weeks:
             continue
 
-        building, _, room = key.partition('|')
-        total = total_by_room.get(key, rd.get('seats') or 0)
+        day = d.isoweekday()
+        label = _day_label(offset, day)
 
-        for c in (rd.get('courses') or []):
-            if c.get('day') != day:
-                continue
-            if not (c.get('week_start', 0) <= week <= c.get('week_end', 0)):
-                continue
-
-            p = c.get('period_start')
-            imp = room_impact(recs, total,
-                              students=c.get('students'), has_class=True)
-            if not imp['impact']:
+        for key, rd in rooms_data.items():
+            recs = unresolved.get(key)
+            if not recs:
                 continue
 
-            span = periods.get(str(p)) or {}
-            start_min = schedule._hhmm_to_min(span.get('start'))
+            building, _, room = key.partition('|')
+            total = total_by_room.get(key, rd.get('seats') or 0)
 
-            if start_min is None:
-                state = 'unknown'
-            elif now_min < start_min:
-                state = 'upcoming'
-            elif p == schedule.current_period(sched):
-                state = 'ongoing'
-            else:
-                state = 'past'
+            for c in (rd.get('courses') or []):
+                if c.get('day') != day:
+                    continue
+                if not (c.get('week_start', 0) <= week <= c.get('week_end', 0)):
+                    continue
 
-            out.append({
-                'building': building,
-                'room': room,
-                'period': p,
-                'time': span,
-                'state': state,
-                'minutes_until': (start_min - now_min)
-                                 if (start_min is not None and now_min < start_min)
-                                 else None,
-                'course': {
-                    'name': c.get('name', ''),
-                    'teacher': schedule.mask_teacher(c.get('teacher')),
-                    'students': c.get('students'),
-                },
-                'reasons': imp['reasons'],
-                'broken': imp['broken'],
-                'available': imp['available'],
-                'total': total,
-                'suggest': suggest_rooms(sched, day, p, week,
-                                         c.get('students') or 0,
-                                         exclude=key),
-            })
+                p = c.get('period_start')
+                imp = room_impact(recs, total,
+                                  students=c.get('students'), has_class=True)
+                if not imp['impact']:
+                    continue
 
-    # 进行中排最前，其次按开始时间
+                span = periods.get(str(p)) or {}
+                start_min = schedule._hhmm_to_min(span.get('start'))
+
+                if offset > 0:
+                    # 明天及以后，一律算"待开始"
+                    state = 'upcoming'
+                elif start_min is None:
+                    state = 'unknown'
+                elif now_min < start_min:
+                    state = 'upcoming'
+                elif p == now_period:
+                    state = 'ongoing'
+                else:
+                    state = 'past'
+
+                out.append({
+                    'date': d.isoformat(),
+                    'offset': offset,
+                    'day': day,
+                    'day_label': label,
+                    'week': week,
+                    'building': building,
+                    'room': room,
+                    'period': p,
+                    'time': span,
+                    'state': state,
+                    'minutes_until': (start_min - now_min)
+                                     if (start_min is not None and now_min < start_min)
+                                     else None,
+                    'course': {
+                        'name': c.get('name', ''),
+                        'teacher': schedule.mask_teacher(c.get('teacher')),
+                        'students': c.get('students'),
+                    },
+                    'reasons': imp['reasons'],
+                    'broken': imp['broken'],
+                    'available': imp['available'],
+                    'total': total,
+                    'suggest': suggest_rooms(sched, day, p, week,
+                                             c.get('students') or 0,
+                                             exclude=key),
+                })
+
+    # 进行中排最前；同状态按「哪一天 → 第几节」排
     order = {'ongoing': 0, 'upcoming': 1, 'unknown': 2, 'past': 3}
-    out.sort(key=lambda x: (order.get(x['state'], 9), x['period']))
+    out.sort(key=lambda x: (order.get(x['state'], 9), x['offset'], x['period']))
     return out
+
+
+def _day_label(offset, weekday):
+    """今天 / 明天 / 周X"""
+    names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    wd = names[weekday - 1] if 1 <= weekday <= 7 else ''
+    if offset == 0:
+        return f'今天 {wd}'
+    if offset == 1:
+        return f'明天 {wd}'
+    return f'{offset} 天后 {wd}'
 
 
 def suggest_rooms(sched, day, period, week, students, exclude=None, limit=3):

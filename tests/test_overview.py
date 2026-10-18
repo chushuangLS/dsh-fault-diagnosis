@@ -218,9 +218,9 @@ class TestCategoriesAndTrend:
         assert t['active_days'] >= 1
 
 
-class TestTodayWarnings:
+class TestUpcomingWarnings:
     """
-    今日预警：故障 + 今天有课 → 生成一条预警
+    预警：故障 + 有课 → 生成一条预警（今天 + 明天）
 
     日期依赖是这里最容易出问题的地方，所以测试里直接构造
     "今天有课"的课表，而不是写死某个星期几。
@@ -263,7 +263,7 @@ class TestTodayWarnings:
 
     def test_warning_generated(self, tmp_data):
         data = self._build(tmp_data)
-        ws = overview.today_warnings(data, overview._unresolved_by_room(),
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
                                      classroom.flat_rooms())
         assert len(ws) == 1
         assert ws[0]['room'] == '101'
@@ -272,19 +272,19 @@ class TestTodayWarnings:
     def test_teacher_name_masked(self, tmp_data):
         """预警里出现的教师名必须已脱敏"""
         data = self._build(tmp_data)
-        ws = overview.today_warnings(data, overview._unresolved_by_room(),
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
                                      classroom.flat_rooms())
         assert ws[0]['course']['teacher'] == '张老师'
 
     def test_no_class_no_warning(self, tmp_data):
         data = self._build(tmp_data, with_class_today=False)
-        ws = overview.today_warnings(data, overview._unresolved_by_room(),
+        ws = overview.upcoming_warnings(data, overview._unresolved_by_room(),
                                      classroom.flat_rooms())
         assert ws == []
 
     def test_no_fault_no_warning(self, tmp_data):
         data = self._build(tmp_data)
-        ws = overview.today_warnings(data, {}, classroom.flat_rooms())
+        ws = overview.upcoming_warnings(data, {}, classroom.flat_rooms())
         assert ws == []
 
     def test_seat_shortage_creates_warning(self, tmp_data):
@@ -309,7 +309,7 @@ class TestTodayWarnings:
                               conclusion='x', status=repair_log.STATUS_PENDING,
                               building='实验楼A', quantity=5)
 
-        ws = overview.today_warnings(schedule.load(),
+        ws = overview.upcoming_warnings(schedule.load(),
                                      overview._unresolved_by_room(),
                                      classroom.flat_rooms())
         assert len(ws) == 1
@@ -335,3 +335,76 @@ class TestKpi:
         assert d['kpi']['room_count'] == 0
         assert d['rooms'] == []
         assert d['warnings'] == []
+
+
+class TestNetworkOutage:
+    """整间断网：交换机 / 上联坏了，机房课上不了"""
+
+    def test_switch_is_network_outage(self):
+        r = _rec(symptom='交换机故障', target=repair_log.TARGET_FACILITY)
+        assert overview.is_network_outage(r) is True
+
+    def test_single_pc_network_is_not_outage(self):
+        """
+        单台电脑网口坏了不能算整间断网
+
+        所以判定要求「故障对象 = 教室设施」，光看关键词会把单机故障也算进去。
+        """
+        r = _rec(symptom='网口坏了', target=repair_log.TARGET_PC)
+        assert overview.is_network_outage(r) is False
+
+    def test_outage_counts_as_impact(self):
+        imp = overview.room_impact(
+            [_rec(symptom='教室交换机故障', target=repair_log.TARGET_FACILITY)],
+            total=80)
+        assert imp['impact'] is True
+        assert '整间断网' in imp['reasons']
+
+    def test_aircon_does_not_count(self):
+        """空调坏了课还能上，不算影响上课"""
+        imp = overview.room_impact(
+            [_rec(symptom='教室空调故障', target=repair_log.TARGET_FACILITY)],
+            total=80)
+        assert imp['impact'] is False
+
+
+class TestWarnHorizon:
+    """预警要往后看，不能只看今天"""
+
+    def test_covers_tomorrow(self, tmp_data):
+        """
+        今天没课、明天有课时，明天的课必须能被预警到
+
+        这是实际踩到的坑：周日晚上打开，今天没课 → 整块空白，
+        而明天一早八点的课此刻就受着故障影响。
+        """
+        from datetime import date, timedelta
+
+        classroom.add_building('实验楼A')
+        classroom.add_room('实验楼A', '101', total=80)
+
+        tomorrow_wd = (date.today() + timedelta(days=1)).isoweekday()
+        start = (date.today() - timedelta(days=28)).isoformat()   # 今天 = 第 5 周
+
+        parsed = {'room_label': 'x', 'seats': 80,
+                  'term': {'start': start, 'weeks': 20},
+                  'courses': [{
+                      'day': tomorrow_wd, 'period_start': 1, 'period_end': 1,
+                      'week_start': 1, 'week_end': 20, 'name': '明早的课',
+                      'teacher': '张甲', 'students': 50}]}
+        schedule.upsert_room('实验楼A', '101', parsed, 'x.xls')
+        schedule.set_periods({'1': {'start': '08:00', 'end': '08:45'}})
+
+        repair_log.add_record(classroom='101', symptom='教室总闸跳闸',
+                              conclusion='x', status=repair_log.STATUS_PENDING,
+                              building='实验楼A')
+
+        ws = overview.upcoming_warnings(schedule.load(),
+                                        overview._unresolved_by_room(),
+                                        classroom.flat_rooms())
+        assert len(ws) == 1
+        assert ws[0]['day_label'].startswith('明天')
+        assert ws[0]['offset'] == 1
+
+    def test_warn_days_constant(self):
+        assert overview.WARN_DAYS == 2

@@ -894,6 +894,106 @@ def api_schedule_query():
     return jsonify(res)
 
 
+@app.route('/api/schedule/matrix', methods=['GET'])
+def api_schedule_matrix():
+    """
+    某一天、某一周的整张课表（教室 × 节次）
+
+    这是课表页的主视图数据。前端切日期只需换 day 参数，
+    一屏看全部节次，不用先选条件再点查询。
+
+    参数：day（1-7）、week
+
+    **未导入课表的教室不返回** —— 没法判断有没有课，摆在表里只占地方。
+    """
+    try:
+        day = int(request.args.get('day') or 0)
+        week = int(request.args.get('week') or 0)
+    except ValueError:
+        return jsonify({'error': '参数必须是数字'}), 400
+
+    if not (1 <= day <= 7):
+        return jsonify({'error': '星期超出范围'}), 400
+
+    try:
+        data = schedule.load()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    if not week:
+        week = schedule.current_week(data) or 1
+
+    rooms_data = data.get('rooms') or {}
+    term = data.get('term') or {}
+    weeks = int(term.get('weeks') or 0)
+    if weeks and week > weeks:
+        week = weeks
+
+    # 台账顺序 + 座位数；只保留导了课表的教室
+    #
+    # 顺带标出哪些教室有"影响上课"的未解决故障 ——
+    # 前端要把这些教室整行染红：它本来就不能用，空着也不该被当成调课候选
+    unresolved = overview._unresolved_by_room()
+
+    rooms = []
+    for r in classroom.flat_rooms():
+        key = schedule.room_key(r['building'], r['name'])
+        if key not in rooms_data:
+            continue
+
+        recs = unresolved.get(key, [])
+        # has_class=False：只看"整间跳闸 / 整间断网 / 教师机"这类硬伤，
+        # 座位不够要结合具体某节课才知道，不在这里判
+        imp = overview.room_impact(recs, r.get('total', 0), has_class=False)
+
+        rooms.append({
+            'building': r['building'],
+            'name': r['name'],
+            'total': r.get('total', 0),
+            'fault': imp['impact'],
+            'fault_reasons': imp['reasons'],
+        })
+
+    courses = []
+    for r in rooms:
+        rd = rooms_data.get(schedule.room_key(r['building'], r['name'])) or {}
+        for c in (rd.get('courses') or []):
+            if c.get('day') != day:
+                continue
+            if not (c.get('week_start', 0) <= week <= c.get('week_end', 0)):
+                continue
+            courses.append({
+                'building': r['building'],
+                'room': r['name'],
+                'p': c.get('period_start'),
+                'p_end': c.get('period_end'),
+                'name': c.get('name') or '',
+                'teacher': schedule.mask_teacher(c.get('teacher')),
+                'students': c.get('students') or 0,
+            })
+
+    return jsonify({
+        'day': day,
+        'week': week,
+        'term': term,
+        'periods': data.get('periods') or {},
+        'rooms': rooms,
+        'courses': courses,
+        'now': {
+            'day': _today_weekday_num(),
+            'period': schedule.current_period(data),
+            'week': schedule.current_week(data),
+        },
+    })
+
+
+def _today_weekday_num():
+    """今天星期几，1-7（周一为 1）"""
+    from datetime import date
+
+    return date.today().isoweekday()
+
+
 @app.route('/api/schedule/room', methods=['GET'])
 def api_schedule_room():
     """

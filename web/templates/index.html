@@ -527,7 +527,7 @@
       <div class="dashboard schedule-page">
 
         <div class="dash-title">
-          <h2>课表与空余教室</h2>
+          <h2>课表与调课</h2>
           <span class="dash-sub" id="sched-term-line"></span>
           <div class="dash-actions">
             <button class="btn-ghost btn-sm" id="sched-period-btn">作息设置</button>
@@ -535,33 +535,26 @@
           </div>
         </div>
 
-        <!-- 查询条件 -->
-        <div class="sched-query">
-          <div class="sched-field">
-            <label>星期</label>
-            <select id="sched-day"></select>
+        <!-- 日期切换：点一下整张表就换，没有「查询」按钮 -->
+        <div class="sched-daybar" id="sched-daybar"></div>
+
+        <div id="sched-main" class="sched-card">
+          <div class="sched-tablewrap">
+            <table class="sched-matrix">
+              <thead><tr id="sched-thead"><th></th></tr></thead>
+              <tbody id="sched-tbody"></tbody>
+            </table>
           </div>
-          <div class="sched-field">
-            <label>节次</label>
-            <select id="sched-period"></select>
+          <div class="sched-legend">
+            <span class="slg"><i class="sw sw-busy"></i> 有课</span>
+            <span class="slg"><i class="sw sw-free"></i> 空闲</span>
+            <span class="slg"><i class="sw sw-fault"></i> 该教室有故障</span>
+            <span class="slg-right">点课程格子看能挪到哪 · 点空格子看该节空闲</span>
           </div>
-          <div class="sched-field">
-            <label>周次</label>
-            <select id="sched-week"></select>
-          </div>
-          <div class="sched-field sched-seats-field">
-            <label>座位数 ≥</label>
-            <input type="number" id="sched-min-seats" min="0" placeholder="不限">
-          </div>
-          <button class="btn-ghost btn-sm" id="sched-now-btn" title="按当前时间自动填好">
-            现在
-          </button>
-          <button class="btn-primary btn-sm" id="sched-query-btn">查询</button>
         </div>
 
-        <div id="sched-hint" class="sched-hint hidden"></div>
-
-        <div id="sched-results" class="sched-results"></div>
+        <!-- 点格子后弹出的详情 / 调课建议 -->
+        <div id="sched-detail"></div>
 
         <div id="sched-empty" class="empty hidden">
           <svg class="icon empty-icon" width="40" height="40"><use href="#i-calendar"/></svg>
