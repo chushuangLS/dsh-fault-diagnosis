@@ -37,6 +37,7 @@ import os
 import paths
 
 API_KEY_FIELD = 'api_key'
+DISABLED_FIELD = 'disabled'
 ENV_NAME = 'DEEPSEEK_API_KEY'
 
 
@@ -90,15 +91,26 @@ def get_api_key():
     """
     取 API Key，三个来源按优先级找
 
-    返回空字符串表示没配置（调用方自己决定怎么提示）。
+    返回空字符串表示没有可用的 Key。
+
+    关于 disabled 标记：
+      用户在设置里点「清除」时，光删掉 config.json 里的 key 是不够的 ——
+      后面还有"Windows 用户环境变量"这层兜底，会把它又找回来，
+      用户会觉得"点了清除怎么还有"。
+      所以清除会写一个显式的 disabled 标记，直接短路掉所有来源。
+      重新填一个 Key 就自动解除。
     """
+    data = load()
+    if data.get(DISABLED_FIELD):
+        return ''
+
     # 1. 当前进程的环境变量
     env = os.environ.get(ENV_NAME)
     if env and env.strip():
         return env.strip()
 
-    # 2. 配置文件（桌面版弹窗填的就是这里）
-    value = load().get(API_KEY_FIELD)
+    # 2. 配置文件（桌面版弹窗 / 设置界面填的就是这里）
+    value = data.get(API_KEY_FIELD)
     if isinstance(value, str) and value.strip():
         return value.strip()
 
@@ -107,24 +119,60 @@ def get_api_key():
     return win.strip() if win and win.strip() else ''
 
 
+def key_source():
+    """
+    Key 是从哪来的：env / file / windows / disabled / none
+
+    界面要显示"来源"，光有打码值不够 ——
+    用户得知道为什么改了 config.json 却还是老 Key。
+    """
+    data = load()
+    if data.get(DISABLED_FIELD):
+        return 'disabled'
+
+    env = os.environ.get(ENV_NAME)
+    if env and env.strip():
+        return 'env'
+
+    value = data.get(API_KEY_FIELD)
+    if isinstance(value, str) and value.strip():
+        return 'file'
+
+    if (_windows_user_env(ENV_NAME) or '').strip():
+        return 'windows'
+
+    return 'none'
+
+
 def set_api_key(key):
     """
     把 Key 写进配置文件
 
-    传空字符串表示清除。
+    传空字符串表示**清除**：写一个 disabled 标记，
+    把环境变量和注册表这几层兜底也一起屏蔽掉。
+    重新填 Key 时会自动去掉这个标记。
     """
     data = load()
     key = (key or '').strip()
+
     if key:
         data[API_KEY_FIELD] = key
+        data.pop(DISABLED_FIELD, None)
     else:
         data.pop(API_KEY_FIELD, None)
+        data[DISABLED_FIELD] = True
+
     save(data)
     return config_file()
 
 
 def has_api_key():
     return bool(get_api_key())
+
+
+def is_disabled():
+    """用户是否在设置里显式清除过 Key"""
+    return bool(load().get(DISABLED_FIELD))
 
 
 def mask_key(key):

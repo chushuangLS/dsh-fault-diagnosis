@@ -197,6 +197,14 @@
           stroke-linecap="round"/>
   </symbol>
 
+  <symbol id="i-settings" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3.2"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5
+             M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"
+          fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"/>
+  </symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24">
     <path d="M20 12a8 8 0 1 1-2.3-5.6"
           fill="none" stroke="currentColor" stroke-width="1.6"
@@ -677,7 +685,63 @@
       <span class="rail-text">教室管理</span>
     </button>
 
+    <button class="rail-item rail-gear" id="settings-btn" title="设置（API Key 等）">
+      <span class="rail-icon">
+        <svg class="icon" width="20" height="20"><use href="#i-settings"/></svg>
+      </span>
+      <span class="rail-text">设置</span>
+    </button>
+
   </aside>
+
+  <!-- ========== 设置弹窗 ========== -->
+  <div id="settings-modal" class="modal-mask hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3>设置</h3>
+        <button id="settings-close" class="modal-close" title="关闭">
+          <svg class="icon" width="16" height="16"><use href="#i-close"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- API Key -->
+        <div class="set-block">
+          <div class="set-title">DeepSeek API Key</div>
+          <div class="set-desc">
+            诊断功能要用它。台账、课表、统计不需要 Key 也能用。
+          </div>
+
+          <div id="set-key-status" class="set-status"></div>
+
+          <div class="set-row">
+            <input type="password" id="set-key-input" class="set-input"
+                   placeholder="sk-…" autocomplete="off" spellcheck="false">
+            <button id="set-key-save" class="btn-primary btn-sm">保存</button>
+          </div>
+
+          <div class="set-row set-row-actions">
+            <button id="set-key-clear" class="btn-ghost btn-sm">清除</button>
+            <span id="set-key-hint" class="set-hint"></span>
+          </div>
+
+          <div id="set-key-file" class="set-file"></div>
+        </div>
+
+        <div class="set-divider"></div>
+
+        <!-- 数据目录 -->
+        <div class="set-block">
+          <div class="set-title">数据目录</div>
+          <div class="set-desc">
+            报修记录、教室台账、课表都存在这里。备份就拷这个文件夹。
+          </div>
+          <button id="set-open-dir" class="btn-ghost btn-sm">打开数据目录</button>
+          <div id="set-dir-path" class="set-file"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ========== 后台管理弹窗 ========== -->
   <div id="admin-modal" class="modal-mask hidden">

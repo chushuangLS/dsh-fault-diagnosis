@@ -31,6 +31,7 @@ import schedule
 import overview
 import version
 import paths
+import config
 
 # Flask 应用配置
 #
@@ -1053,6 +1054,97 @@ def _knowledge_stats():
         return knowledge.stats()
     except Exception:
         return {'total': 0, 'auto': 0, 'manual': 0, 'by_category': {}}
+
+
+# ============================================================
+# 本地设置（API Key）
+# ============================================================
+
+def _is_local_request():
+    """
+    只允许本机请求
+
+    这两个接口会读写本机的 API Key。桌面版和默认的 Web 版都只监听
+    127.0.0.1，本来就出不去；但如果哪天有人把 host 改成 0.0.0.0 开到
+    局域网，这里再不做限制，**同一网段任何人都能改你的 Key**。
+    所以加一道显式检查，不依赖"反正外面连不到"。
+    """
+    return request.remote_addr in ('127.0.0.1', '::1', 'localhost')
+
+
+@app.route('/api/settings/api-key', methods=['GET'])
+def api_get_api_key():
+    """
+    查 API Key 配置状态
+
+    **不返回明文**，只返回打码值和来源，够界面显示即可。
+    """
+    key = config.get_api_key()
+    source = config.key_source()
+
+    return jsonify({
+        'configured': bool(key),
+        'masked': config.mask_key(key),
+        'source': source,
+        'disabled': config.is_disabled(),
+        'editable': _is_local_request(),
+        'config_file': config.config_file(),
+    })
+
+
+@app.route('/api/settings/api-key', methods=['POST'])
+def api_set_api_key():
+    """
+    保存或清除 API Key
+
+    请求体：{"key": "sk-..."}   保存
+            {"key": ""}          清除
+    """
+    if not _is_local_request():
+        return jsonify({'ok': False,
+                        'message': '只允许在本机修改 API Key'}), 403
+
+    d = request.get_json(silent=True) or {}
+    if 'key' not in d:
+        return jsonify({'ok': False, 'message': '缺少 key 字段'}), 400
+
+    raw = d.get('key')
+    if raw is not None and not isinstance(raw, str):
+        return jsonify({'ok': False, 'message': 'key 必须是字符串'}), 400
+
+    key = (raw or '').strip()
+    path = config.set_api_key(key)
+
+    return jsonify({
+        'ok': True,
+        'cleared': not key,
+        'masked': config.mask_key(key),
+        'message': '已清除' if not key else '已保存',
+        'config_file': path,
+    })
+
+
+@app.route('/api/settings/open-data-dir', methods=['POST'])
+def api_open_data_dir():
+    """
+    在文件管理器里打开数据目录
+
+    给"我要备份/我要找 config.json"用的。
+    同样限制本机 —— 不能让远程请求在你机器上弹窗口。
+    """
+    if not _is_local_request():
+        return jsonify({'ok': False, 'message': '只允许在本机操作'}), 403
+
+    path = paths.data_dir()
+    try:
+        if os.name != 'nt':
+            return jsonify({'ok': False,
+                            'message': '该功能仅支持 Windows',
+                            'path': path}), 400
+        os.startfile(path)      # noqa: S606
+        return jsonify({'ok': True, 'path': path})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e), 'path': path}), 500
 
 
 # ============================================================

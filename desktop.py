@@ -165,55 +165,6 @@ def _ask_api_key(first_run=True):
     return True
 
 
-def _menu_set_key():
-    """
-    菜单回调：设置 API Key
-
-    tkinter 的 root 必须在自己的线程里创建 ——
-    这个回调跑在 WebView 的 GUI 线程上，直接建 Tk 会卡住。
-    """
-    def work():
-        ok = _ask_api_key(first_run=False)
-        if ok:
-            # 顺带刷新一下窗口，让用户看到"已配置"的效果
-            try:
-                import webview
-                if webview.windows:
-                    webview.windows[0].evaluate_js('location.reload()')
-            except Exception:
-                pass
-
-    threading.Thread(target=work, daemon=True).start()
-
-
-def _menu_open_data_dir():
-    """菜单回调：打开数据目录（备份、找配置文件都靠它）"""
-    try:
-        os.startfile(paths.data_dir())      # noqa: S606  Windows only
-    except Exception:
-        _log('打不开数据目录：\n' + traceback.format_exc())
-
-
-def _build_menu():
-    """
-    构建窗口菜单
-
-    pywebview 不可用时返回空表 —— 兜底的 Edge 窗口本来就没有菜单栏。
-    """
-    try:
-        from webview.menu import Menu, MenuAction, MenuSeparator
-    except Exception:
-        return []
-
-    return [
-        Menu('设置', [
-            MenuAction('设置 API Key…', _menu_set_key),
-            MenuSeparator(),
-            MenuAction('打开数据目录', _menu_open_data_dir),
-        ]),
-    ]
-
-
 def _open_edge_app(url):
     """
     兜底：用 Edge 的「应用模式」开一个无地址栏窗口
@@ -303,7 +254,6 @@ def main():
             maximized=True,
             resizable=True,
             text_select=False,      # 界面是应用而不是网页，别让误拖选中大片文字
-            menu=_build_menu(),
         )
         webview.start()
         _log('窗口已关闭，程序退出')

@@ -39,6 +39,7 @@ function setBgMode(mode) {
 function enterApp(view) {
   animateNumbersReset();
   setBgMode('app');
+  initSettingsModal();
   landingEl.classList.add('exit');
   setTimeout(() => {
     landingEl.classList.add('hidden');
@@ -1771,6 +1772,190 @@ adminModal.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !adminModal.classList.contains('hidden')) closeAdmin();
 });
+
+/* ============================================================
+   设置弹窗（API Key / 数据目录）
+
+   原来这两项是桌面窗口的原生菜单，但 pywebview 用的是 WinForms
+   MenuStrip，浅色默认样式在深色界面里很突兀，而且改样式要动它的内部实现。
+   改成侧边栏按钮 + 网页弹窗，样式统一，Web 版也能用。
+
+   安全上后端做了限制：写 Key 的接口只接受来自 127.0.0.1 的请求，
+   所以就算有人把服务开到局域网，别人也改不了你的 Key。
+   ============================================================ */
+
+const settingsModal = $('#settings-modal');
+
+const KEY_SOURCE_TEXT = {
+  env: '进程环境变量',
+  file: '配置文件',
+  windows: 'Windows 用户环境变量',
+  disabled: '已手动清除，忽略所有来源',
+  none: '未找到',
+};
+
+async function openSettings() {
+  if (!settingsModal) return;
+  settingsModal.classList.remove('hidden');
+  $('#set-key-input').value = '';
+  setKeyHint('');
+  await refreshSettings();
+}
+
+function closeSettings() {
+  if (settingsModal) settingsModal.classList.add('hidden');
+}
+
+function setKeyHint(text, kind) {
+  const el = $('#set-key-hint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'set-hint' + (kind ? ' ' + kind : '');
+}
+
+async function refreshSettings() {
+  const box = $('#set-key-status');
+  if (!box) return;
+
+  let d;
+  try {
+    const res = await fetch('/api/settings/api-key');
+    d = await res.json();
+  } catch (err) {
+    box.className = 'set-status missing';
+    box.textContent = '读取失败：' + err.message;
+    return;
+  }
+
+  if (!d.editable) {
+    // 不是本机在访问 —— 后端会拒绝写入，这里先说清楚
+    box.className = 'set-status remote';
+    box.textContent = '当前不是从本机访问，不能修改 API Key。';
+  } else if (d.configured) {
+    box.className = 'set-status ok';
+    const from = KEY_SOURCE_TEXT[d.source] || d.source;
+    box.textContent = `已配置：${d.masked}（来源：${from}）`;
+  } else if (d.disabled) {
+    // 光写"未配置"会让人困惑：系统里明明有环境变量啊
+    box.className = 'set-status missing';
+    box.textContent = '已清除。此时不会使用任何来源的 Key（环境变量也会被忽略）。'
+      + '重新填入一个 Key 即可恢复。';
+  } else {
+    box.className = 'set-status missing';
+    box.textContent = '还没配置。诊断功能不可用，台账和课表不受影响。';
+  }
+
+  // 不可编辑时把输入区禁用掉
+  const disabled = !d.editable;
+  ['#set-key-input', '#set-key-save', '#set-key-clear'].forEach(sel => {
+    const el = $(sel);
+    if (el) el.disabled = disabled;
+  });
+
+  const fileEl = $('#set-key-file');
+  if (fileEl) {
+    fileEl.textContent = d.config_file
+      ? '保存位置：' + d.config_file
+      : '';
+  }
+}
+
+async function saveApiKey() {
+  const input = $('#set-key-input');
+  const key = (input.value || '').trim();
+  if (!key) {
+    setKeyHint('请先粘贴 Key', 'err');
+    input.focus();
+    return;
+  }
+
+  const btn = $('#set-key-save');
+  btn.disabled = true;
+  setKeyHint('保存中…');
+  try {
+    const res = await fetch('/api/settings/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const d = await res.json();
+    if (!d.ok) {
+      setKeyHint(d.message || '保存失败', 'err');
+    } else {
+      input.value = '';
+      setKeyHint('已保存，诊断立刻可用', 'ok');
+      await refreshSettings();
+    }
+  } catch (err) {
+    setKeyHint('保存失败：' + err.message, 'err');
+  }
+  btn.disabled = false;
+}
+
+async function clearApiKey() {
+  if (!confirm('确定清除已保存的 API Key？\n清除后诊断功能不可用。')) return;
+
+  const btn = $('#set-key-clear');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/settings/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: '' }),
+    });
+    const d = await res.json();
+    setKeyHint(d.ok ? '已清除' : (d.message || '清除失败'),
+               d.ok ? 'ok' : 'err');
+    await refreshSettings();
+  } catch (err) {
+    setKeyHint('清除失败：' + err.message, 'err');
+  }
+  btn.disabled = false;
+}
+
+async function openDataDir() {
+  const hint = $('#set-dir-path');
+  try {
+    const res = await fetch('/api/settings/open-data-dir', { method: 'POST' });
+    const d = await res.json();
+    if (hint) {
+      hint.textContent = d.path ? '数据目录：' + d.path : '';
+    }
+    if (!d.ok && d.message) alert(d.message);
+  } catch (err) {
+    if (hint) hint.textContent = '打开失败：' + err.message;
+  }
+}
+
+function initSettingsModal() {
+  if (!settingsModal || settingsModal.dataset.inited) return;
+  settingsModal.dataset.inited = '1';
+
+  const btn = $('#settings-btn');
+  if (btn) btn.addEventListener('click', openSettings);
+  $('#settings-close').addEventListener('click', closeSettings);
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettings();
+  });
+
+  $('#set-key-save').addEventListener('click', saveApiKey);
+  $('#set-key-clear').addEventListener('click', clearApiKey);
+  $('#set-open-dir').addEventListener('click', openDataDir);
+
+  // 回车直接保存，不用去点按钮
+  $('#set-key-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveApiKey();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) {
+      closeSettings();
+    }
+  });
+}
 
 // 两个视图切换
 function showListView() {
