@@ -103,7 +103,7 @@ h1:first-of-type { page-break-before: avoid; }
 h2 {
   font-size: 13pt;
   color: #1e40af;
-  margin: 20px 0 9px;
+  margin: 15px 0 8px;
   page-break-after: avoid;
 }
 
@@ -114,7 +114,7 @@ h3 {
   page-break-after: avoid;
 }
 
-p { margin-bottom: 9px; }
+p { margin-bottom: 6px; }
 
 /* ---------- 列表 ---------- */
 ul, ol { margin: 8px 0 12px 22px; }
@@ -245,7 +245,7 @@ tr:nth-child(even) td { background: #f8fafc; }
     <tr><td>作品名称</td><td>机房故障智能诊断助手</td></tr>
     <tr><td>选题方向</td><td>场景化轻量 RAG 知识库</td></tr>
     <tr><td>技术栈</td><td>Python · Flask · DeepSeek API · 原生前端</td></tr>
-    <tr><td>当前版本</td><td>v0.14.0</td></tr>
+    <tr><td>当前版本</td><td>v0.15.0</td></tr>
     <tr><td>代码仓库</td><td>github.com/liyishuo1/dsh-fault-diagnosis</td></tr>
     <tr><td>作者</td><td>李一硕</td></tr>
   </table>
@@ -277,6 +277,8 @@ tr:nth-child(even) td { background: #f8fafc; }
     <li class="l2"><span>3.5 并发写入保护</span><span></span></li>
     <li class="l2"><span>3.6 课表：从教务表格到「哪间空着」</span><span></span></li>
     <li class="l2"><span>3.7 运行总览：判定「能不能上课」</span><span></span></li>
+    <li class="l2"><span>3.8 桌面化：把同一个应用装进窗口</span><span></span></li>
+    <li class="l2"><span>3.9 界面性能：两个被「看着还行」掩盖的问题</span><span></span></li>
 
     <li><span>四、意图控制策略</span><span>13</span></li>
     <li class="l2"><span>4.1 系统提示词设计</span><span></span></li>
@@ -827,26 +829,19 @@ Flask 默认多线程，多个请求可能同时「读-改-写」同一个数据
 
 <pre><code>@contextlib.contextmanager
 def file_lock(target_path):
-    """
-    第一层：进程内可重入锁（threading.RLock）
-    第二层：跨进程文件锁（flock / msvcrt）
-    """
+    """第一层：进程内可重入锁 第二层：跨进程文件锁"""
     key = os.path.abspath(target_path)
-    local = _get_local_lock(target_path)
-
-    with local:
-        # 本线程是否已持有该文件的系统锁 → 本次是内层重入
-        if key in _held_paths():
+    with _get_local_lock(target_path):
+        if key in _held_paths():      # 内层重入：不碰系统锁
             yield
-            return          # 内层不碰系统锁，直接执行
+            return
 
-        lock_path = target_path + '.lock'
-        fh = open(lock_path, 'w')
+        fh = open(target_path + '.lock', 'w')
         try:
-            import fcntl                      # Linux / macOS
+            import fcntl                  # Linux / macOS
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
         except ImportError:
-            import msvcrt                     # Windows
+            import msvcrt                 # Windows
             msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
 
         _held_paths().add(key)
@@ -1050,6 +1045,153 @@ OLE2 走 <code>xlrd</code>，ZIP 走 <code>openpyxl</code>。
 改成<b>只按故障现象判</b>——现象是运维人员自己的简短描述，稳定且没有干扰。
 </p>
 
+<h2>3.8 桌面化：把同一个应用装进窗口</h2>
+
+<p>
+Web 形态每次要先起服务、再开浏览器，还留一个控制台窗口。
+演示和日常值班都别扭。目标只是<b>换一种启动方式</b>，不是重写：
+用 pywebview 起一个内嵌 WebView2 的原生窗口，页面代码一行没改。
+</p>
+
+<p>但"打个包"这一步，暴露出三个原本不存在的问题。</p>
+
+<h3>问题一：数据不能打进 exe</h3>
+
+<p>
+所有模块原先都写 <code>os.path.join(dirname(__file__), '..', 'data')</code>。
+打包后 <code>__file__</code> 指向<b>临时解包目录</b>，数据写进去，程序一退就清空。
+</p>
+
+<p>
+所以把"代码在哪"和"数据写哪"拆开：
+</p>
+
+<table>
+  <tr><th style="width:20%">函数</th><th>含义</th></tr>
+  <tr><td><code>res_dir()</code></td><td>只读资源（模板、静态文件）。打包后在
+      <code>sys._MEIPASS</code>，程序退出自动清理，正好</td></tr>
+  <tr><td><code>data_dir()</code></td><td>可写数据。优先级：环境变量
+      <code>DSH_DATA_DIR</code> → exe 同目录的 <code>data/</code> →
+      <code>%APPDATA%</code>（装在 Program Files 等只读位置时兜底）</td></tr>
+</table>
+
+<p>
+首次运行时把知识库、决策树、空台账骨架铺到数据目录，
+<b>只补缺失的文件</b>，绝不覆盖已有数据。
+</p>
+
+<h3>问题二：单文件 exe 根本起不来</h3>
+
+<pre><code>[PYI-2580:ERROR] Could not create temporary directory!</code></pre>
+
+<p>
+单文件形态每次运行都要把自己解压到临时目录再启动，
+这一步被杀毒软件拦了——换一个临时目录也一样。
+所以改成<b>文件夹版</b>（onedir）：没有解包步骤，启动更快，误报也更少。
+代价是交付时要整个文件夹一起拷走。
+</p>
+
+<h3>问题三：窗口偶尔起不来，而且说不清为什么</h3>
+
+<pre><code>RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize
+             from ...\pythonnet\runtime\Python.Runtime.dll</code></pre>
+
+<p>
+pywebview 在 Windows 上要经 pythonnet 加载 .NET 组件。
+实测<b>同一份程序在 A 目录能开、B 目录报错</b>；
+排除了中文路径、工作目录、临时目录，原因仍未查清。
+</p>
+
+<p>
+用户看到的现象会是"双击没反应"——比没有功能更糟。
+所以加了一层兜底：pywebview 失败就用 Edge 的 <code>--app</code> 模式
+开一个同样没有地址栏和标签页的窗口。
+兜底里有个坑：Edge 已在运行时，新进程会把窗口交接给已有实例然后立刻退出，
+靠 <code>proc.wait()</code> 判断"窗口何时关闭"就会误判——
+必须给 <code>--user-data-dir</code> 一个独立目录强制新实例。
+</p>
+
+<h3>API Key：为什么需要三处来源</h3>
+
+<p>
+打包给别人用，对方电脑上没有环境变量，一用诊断就报"未配置"。
+读取顺序最终定为：
+</p>
+
+<table>
+  <tr><th style="width:34%">来源</th><th>为什么需要它</th></tr>
+  <tr><td>进程环境变量</td><td>服务器部署、临时换 Key 时不落盘</td></tr>
+  <tr><td><code>data/config.json</code></td><td>桌面版首次启动弹窗填进去的</td></tr>
+  <tr><td>Windows 用户环境变量</td><td><b>实测逼出来的</b>：用户设过 Key，
+      但 <code>pythonw</code> 启动的进程里读不到，只能直接读注册表兜底</td></tr>
+</table>
+
+<p>
+另外，"清除 Key"不能只是删掉配置文件里的那一行——
+后面还有注册表兜底会把它找回来，用户点了清除发现还能用，会以为坏了。
+现在清除会写一个显式的 <code>disabled</code> 标记，短路掉所有来源。
+</p>
+
+<h3>安全边界</h3>
+
+<p>
+写 Key、打开目录、导出文件这类接口<b>只接受来自 127.0.0.1 的请求</b>。
+默认的桌面版和 Web 版都只监听回环地址，本来就出不去；
+但万一有人把 host 改成 <code>0.0.0.0</code> 开到局域网，
+没有这道检查，同网段任何人都能改你的 Key。
+不依赖"反正外面连不到"，而是显式判断。
+</p>
+
+<h2>3.9 界面性能：两个被「看着还行」掩盖的问题</h2>
+
+<p>
+两个性能问题都不是"代码写得慢"，而是<b>用错了渲染路径</b>。
+它们的共同点是：功能完全正常，只是慢。
+</p>
+
+<h3>问题一：动画背景 + 满屏 backdrop-filter</h3>
+
+<p>
+全站有 16 种元素用了背景模糊，共 35 处，其中包括
+<b>每一条报修记录</b>、<b>课表表头的 12 个格子</b>、5 个 KPI 卡。
+背景静态时完全看不出来——一旦背景动起来，
+这些区域每一帧都要重新做一遍高斯模糊。
+</p>
+
+<p>
+改成半透明纯色背景（不透明度从 0.72 提到 0.92）后，
+肉眼几乎看不出区别，但这几十次每帧模糊全部消失。
+</p>
+
+<h3>问题二：画布不是画得慢，是合成慢</h3>
+
+<p>
+剩下的背景动画仍然卡。这次先测量再改，在打包后的窗口里插临时帧率表：
+</p>
+
+<table>
+  <tr><th style="width:38%">条件</th><th>整页帧率</th><th>背景每帧绘制耗时</th></tr>
+  <tr><td>背景限 20fps</td><td>145–182 fps</td><td>—</td></tr>
+  <tr><td>背景提到 60fps</td><td><b>46–55 fps</b></td><td><b>1.0 ms</b></td></tr>
+</table>
+
+<div class="callout">
+  <b>绘制只要 1ms，帧率却掉了三分之二 —— 说明瓶颈不在绘制。</b>
+  DPR=2 时这块全屏画布是 3414×2134（730 万像素），
+  每秒要把这么大一层重新合成 60 次，把合成资源吃满了。
+</div>
+
+<p>
+把画布固定为 1 倍分辨率（1707×1067，面积只剩 1/4），帧率恢复，
+线条是柔和的渐隐色，肉眼几乎看不出差别。
+</p>
+
+<div class="callout warn">
+  <b>这里有一课：为了省 CPU 把帧率限到 20fps，其实是拿"背景一卡一卡"换了流畅。</b>
+  在高刷屏上，20fps 的动画和 180fps 的界面放在一起，
+  用户的感受就是"掉帧"。<b>优化要看用户看到什么，不是看指标降了多少。</b>
+</div>
+
 <!-- ==================== 四、意图控制策略 ==================== -->
 <h1>四、意图控制策略</h1>
 
@@ -1207,84 +1349,57 @@ def parse_quantity(text):
 <h2>5.1 自动化测试</h2>
 
 <p>
-项目包含 <b>326 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
+项目包含 <b>371 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
 </p>
 
 <table>
   <tr>
-    <th style="width:34%">测试文件</th>
+    <th style="width:40%">测试文件</th>
     <th style="width:12%">用例数</th>
     <th>覆盖内容</th>
   </tr>
-  <tr>
-    <td><code>test_knowledge.py</code></td>
-    <td>37</td>
-    <td>检索质量、假阳性防护、自动沉淀、手工/自动数据隔离</td>
-  </tr>
-  <tr>
-    <td><code>test_repair_log.py</code></td>
-    <td>12</td>
-    <td>台账 CRUD、状态排序、旧 CSV 表头迁移</td>
-  </tr>
-  <tr>
-    <td><code>test_classroom_daily.py</code></td>
-    <td>30</td>
-    <td>教室台账校验、四态统计、待办排序与逾期判定</td>
-  </tr>
-  <tr>
-    <td><code>test_quantity_and_status.py</code></td>
-    <td>38</td>
-    <td>数量解析、状态判定与迁移、批量登记不丢数据</td>
-  </tr>
-  <tr>
-    <td><code>test_concurrency.py</code></td>
-    <td>10</td>
-    <td>并发写入不丢数据、文件锁正确性、锁可重入防死锁</td>
-  </tr>
-  <tr>
-    <td><code>test_excel_export.py</code></td>
-    <td>32</td>
-    <td>报表口径、纵向合并、原因精简、合计行</td>
-  </tr>
-  <tr>
-    <td><code>test_facility_target.py</code></td>
-    <td>23</td>
-    <td>故障对象判定、设施故障不计入台数、提示词安全规则</td>
-  </tr>
-  <tr>
-    <td><code>test_fault_category.py</code></td>
-    <td>36</td>
-    <td>故障细分类、反复故障阈值与复发计数、跨教室不合并</td>
-  </tr>
-  <tr>
-    <td><code>test_schedule.py</code></td>
-    <td>56</td>
-    <td>课表解析（.xls/.xlsx）、教师脱敏、教室映射、周次推算、空余查询</td>
-  </tr>
-  <tr>
-    <td><code>test_overview.py</code></td>
-    <td>43</td>
-    <td>影响上课判定、整间断网、预警跨天、调课推荐筛选</td>
-  </tr>
+  <tr><td><code>test_schedule.py</code></td><td>56</td>
+      <td>课表解析、脱敏、周次推算、空余查询</td></tr>
+  <tr><td><code>test_overview.py</code></td><td>47</td>
+      <td>影响上课判定、断网、预警跨天、调课筛选</td></tr>
+  <tr><td><code>test_quantity_and_status.py</code></td><td>38</td>
+      <td>数量解析、状态迁移、批量登记</td></tr>
+  <tr><td><code>test_knowledge.py</code></td><td>37</td>
+      <td>检索质量、假阳性防护、自动沉淀</td></tr>
+  <tr><td><code>test_fault_category.py</code></td><td>36</td>
+      <td>故障细分类、反复故障阈值</td></tr>
+  <tr><td><code>test_excel_export.py</code></td><td>32</td>
+      <td>报表口径、纵向合并、合计行</td></tr>
+  <tr><td><code>test_classroom_daily.py</code></td><td>30</td>
+      <td>台账校验、四态统计、逾期判定</td></tr>
+  <tr><td><code>test_facility_target.py</code></td><td>23</td>
+      <td>故障对象判定、设施不计入台数</td></tr>
+  <tr><td><code>test_paths_config.py</code></td><td>16</td>
+      <td>打包后路径解析、空 _MEIPASS 降级</td></tr>
+  <tr><td><code>test_repair_log.py</code></td><td>12</td>
+      <td>台账 CRUD、旧表头迁移</td></tr>
+  <tr><td><code>test_concurrency.py</code></td><td>10</td>
+      <td>并发不丢数据、锁可重入</td></tr>
+  <tr><td><code>test_desktop.py</code> / <code>test_config_key.py</code> /
+          <code>test_css_sanity.py</code></td><td>23</td>
+      <td>启动器端口与就绪等待、Key 来源优先级、样式完整性</td></tr>
 </table>
 
 <div class="callout">
-  <b>测试设计原则：只测不变的契约，不测易变的实现。</b>
-  例如测试「正常 + 损坏 = 设备总数」这条业务规则，
-  而不是测试某个函数的具体实现细节——前者改代码时仍成立，
-  后者稍作重构就会误报。
+  <b>只测不变的契约，不测易变的实现。</b>
+  测「正常 + 损坏 = 设备总数」这条业务规则，而不是某个函数怎么写的——
+  前者改代码时仍成立，后者稍作重构就误报。
 </div>
 
 <div class="callout warn">
   <b>要警惕「因为错误的原因而通过」的测试。</b>
-  并发沉淀那一条测试曾经用 8 条只差一个字符的症状当作「不同故障」，
-  而系统的去重逻辑会把它们正确判为重复。
-  在 Windows 上线程启动较慢，8 个线程恰好在任何写入之前都完成了查重，
-  于是全部写入、测试通过；Linux 上线程启动快，就露出了真面目。<br><br>
-  <b>这种测试比没有测试更危险</b>——它给出一种虚假的安全感，
-  失败时又表现为「时好时坏、只在某个平台挂」，
-  很容易被当成环境问题而加个重试糊过去。
-  判断依据很简单：<b>如果一条测试的结论取决于线程时序，那它测的就不是业务规则。</b>
+  并发沉淀那条测试曾用 8 条只差一个字符的症状当「不同故障」，
+  而被测的去重逻辑会把它们判为重复：Windows 线程启动慢，
+  8 个线程在写入前都查完了重，于是全部写入、测试通过；
+  Linux 上线程快，才露出真面目。<br><br>
+  <b>这种测试比没有测试更危险</b>——它给虚假的安全感，
+  失败时表现为「时好时坏、只在某个平台挂」，很容易被加个重试糊过去。
+  判断很简单：<b>结论取决于线程时序的测试，测的就不是业务规则。</b>
 </div>
 
 <h2>5.2 持续集成</h2>
@@ -1317,7 +1432,7 @@ jobs:
 
 <h2>5.3 典型缺陷与修复</h2>
 
-<p>以下是开发过程中真实发现并修复的五个典型缺陷，均有测试保护：</p>
+<p>以下是开发过程中真实发现并修复的典型缺陷，均有测试保护。</p>
 
 <h3>缺陷 1：异常被静默吞掉，知识库悄悄失效</h3>
 
@@ -1366,21 +1481,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
 
 <p><b>修复：</b>新增同义词归一表，并在切分前扫描原文。</p>
 
-<h3>缺陷 3：并发写入丢数据</h3>
-
-<p>
-<b>现象：</b>两个诊断同时结束时，台账只留下一条记录。
-</p>
-
-<p>
-<b>根因：</b>「读-改-写」无锁，后写的覆盖先写的。
-</p>
-
-<p>
-<b>修复：</b>引入跨平台文件锁，并确保<b>加锁之后再读取</b>。
-</p>
-
-<h3>缺陷 4：图表颜色与主题冲突</h3>
+<h3>缺陷 3：下拉选项在深色主题下看不见</h3>
 
 <p>
 <b>现象：</b>下拉选项在深色主题下是白底浅字，几乎无法阅读。
@@ -1393,7 +1494,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
 
 <p><b>修复：</b>新增全局 <code>select option</code> 规则统一处理。</p>
 
-<h3>缺陷 5：文件初始化的「检查-写入」竞态</h3>
+<h3>缺陷 4：文件初始化的「检查-写入」竞态</h3>
 
 <p>
 <b>现象：</b>CI 里 Ubuntu 两个 Python 版本时好时坏地失败，
@@ -1410,19 +1511,14 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
     with open(RECORD_FILE, 'w', ...) as f:   # 'w' 截断，覆盖先写入的</code></pre>
 
 <div class="callout warn">
-  <b>为什么本地一直没发现：</b>
-  Windows 的 <code>msvcrt</code> 加锁与线程调度更慢，恰好错开了竞态窗口。
-  这个缺陷只在 Linux 上暴露，而且不是每次都触发——
-  很容易被误判为「测试不稳定」而加个重试糊过去。
-  但它会真的丢数据：两个管理员同时提交报修，就可能少一条记录。<br><br>
-  实测复现：60 轮并发首次创建，<b>47 轮丢数据</b>。
+  <b>为什么本地一直没发现：</b>这个竞态只在 Linux 上暴露，而且不是每次都触发——
+  很容易被误判为「测试不稳定」而加个重试糊过去。实测 60 轮并发首次创建，
+  <b>47 轮丢数据</b>。成因与可重入改造见 3.5 节。
 </div>
 
 <p>
 <b>修复：</b>整个检查-创建过程持锁；创建改用 <code>'x'</code> 模式
 （并发进入者会拿到 <code>FileExistsError</code>，而不是把文件截断）。
-由于这一步加锁后与已有调用路径形成嵌套，同时把
-<code>file_lock</code> 改造成可重入（详见 3.5 节）。
 </p>
 
 <p>
@@ -1439,7 +1535,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
   <tr><th style="width:26%">项目</th><th>要求</th></tr>
   <tr><td>操作系统</td><td>Windows / Linux / macOS</td></tr>
   <tr><td>Python</td><td>3.10 或更高（开发环境 3.15.0）</td></tr>
-  <tr><td>依赖库</td><td>仅 4 个：<code>openai</code> <code>flask</code> <code>openpyxl</code> <code>xlrd</code>（读教务导出的 .xls）</td></tr>
+  <tr><td>依赖库</td><td>核心 4 个：<code>openai</code> <code>flask</code> <code>openpyxl</code> <code>xlrd</code>（读教务导出的 .xls）；桌面窗口版另需 <code>pywebview</code></td></tr>
   <tr><td>数据库</td><td>无需数据库</td></tr>
   <tr><td>前端构建</td><td>无需构建工具（原生 HTML/CSS/JS）</td></tr>
   <tr><td>API Key</td><td>DeepSeek API Key（从环境变量读取）</td></tr>
@@ -1451,7 +1547,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
 git clone git@github.com:liyishuo1/dsh-fault-diagnosis.git
 cd dsh-fault-diagnosis
 
-# 2) 安装依赖（仅 4 个库）
+# 2) 安装依赖（核心 4 个库）
 pip install -r requirements.txt
 
 # 3) 配置 API Key（不写入代码，从环境变量读取）
@@ -1464,7 +1560,7 @@ cd src
 python app.py
 # 浏览器访问 http://127.0.0.1:5000
 
-# 5) 运行测试（可选，326 个用例）
+# 5) 运行测试（可选，371 个用例）
 pip install -r requirements-dev.txt
 python -m pytest tests -v</code></pre>
 
@@ -1477,73 +1573,29 @@ python -m pytest tests -v</code></pre>
 <h2>6.3 演进链路</h2>
 
 <p>
-代码仓库保留了完整的细粒度提交历史，共 <b>55 个提交</b>，
+代码仓库保留了完整的细粒度提交历史，共 <b>89 个提交</b>，
 首次提交仅包含 <code>.gitignore</code>（不是一次性 initial commit）。
 每次提交对应一个功能模块或一次修复：
 </p>
 
 <table>
-  <tr><th style="width:14%">阶段</th><th style="width:16%">版本</th><th>关键提交</th></tr>
-  <tr>
-    <td rowspan="2">起步</td>
-    <td>v0.1.0</td>
-    <td>初始化项目结构 → 添加故障知识库 → 实现本地查询</td>
-  </tr>
-  <tr>
-    <td>v0.2.0</td>
-    <td>决策树逐步诊断（<b>验证后暂缓</b>，维护成本过高）</td>
-  </tr>
-  <tr>
-    <td rowspan="3">AI 接入</td>
-    <td>v0.3.0</td>
-    <td>接入大模型 API → 主程序改为 AI 优先诊断</td>
-  </tr>
-  <tr>
-    <td>v0.4.0</td>
-    <td>改为对话式逐层排查</td>
-  </tr>
-  <tr>
-    <td>v0.5.0</td>
-    <td>Web 界面 → 流式输出 → 数据看板</td>
-  </tr>
-  <tr>
-    <td rowspan="3">业务闭环</td>
-    <td>v0.6.0</td>
-    <td>教室设备台账 → 报修闭环 → 日常报备</td>
-  </tr>
-  <tr>
-    <td>v0.7.0</td>
-    <td>知识库检索增强（轻量 RAG）→ 自动沉淀</td>
-  </tr>
-  <tr>
-    <td>v0.8.0</td>
-    <td>数据分离 → 检索粒度修复 → 并发保护</td>
-  </tr>
-  <tr>
-    <td rowspan="2">工程化</td>
-    <td>v0.9.0</td>
-    <td>测试 → CI → 统一文件锁 → 会话回收</td>
-  </tr>
-  <tr>
-    <td>v0.10.0</td>
-    <td>Excel 报表 → 四态模型 → 界面重构</td>
-  </tr>
-  <tr>
-    <td>v0.11.0</td>
-    <td>故障对象（电脑 / 教室设施）、故障细分类、反复故障分析</td>
-  </tr>
-  <tr>
-    <td>v0.12.0</td>
-    <td>课表导入、作息配置、空余教室查询、教师姓名脱敏</td>
-  </tr>
-  <tr>
-    <td>v0.13.0</td>
-    <td>运行总览：影响上课判定、课程预警、调课建议</td>
-  </tr>
-  <tr>
-    <td>v0.14.0</td>
-    <td>课表页改为当天矩阵；预警扩到今天和明天；整间断网判定；列表分页</td>
-  </tr>
+  <tr><th style="width:14%">阶段</th><th style="width:18%">版本</th><th>关键提交</th></tr>
+  <tr><td rowspan="2">起步</td><td>v0.1 ~ v0.2</td>
+      <td>知识库 + 本地查询；决策树逐步诊断（<b>做出来验证后暂缓</b>）</td></tr>
+  <tr><td>v0.3 ~ v0.4</td>
+      <td>接入大模型 API；改为对话式逐层排查</td></tr>
+  <tr><td rowspan="2">成型</td><td>v0.5</td>
+      <td>Web 界面、流式输出、报修台账与数据看板</td></tr>
+  <tr><td>v0.6 ~ v0.8</td>
+      <td>教室设备台账、RAG 检索增强与自动沉淀、并发写入保护</td></tr>
+  <tr><td rowspan="2">加固</td><td>v0.9 ~ v0.10</td>
+      <td>自动化测试与 CI、统一文件锁、导出 Excel</td></tr>
+  <tr><td>v0.11 ~ v0.12</td>
+      <td>故障对象与细分类、反复故障分析、课表导入与教师脱敏</td></tr>
+  <tr><td rowspan="2">迭代</td><td>v0.13 ~ v0.14</td>
+      <td>运行总览与课程预警；课表页改为当天矩阵；列表分页</td></tr>
+  <tr><td>v0.15</td>
+      <td>桌面窗口版与 exe 打包；API Key 三级来源；界面性能修复</td></tr>
 </table>
 
 <div class="callout">
@@ -1700,7 +1752,7 @@ python -m pytest tests -v</code></pre>
 
 <div style="margin-top:44px;padding-top:18px;border-top:1px solid #e2e8f0;
             text-align:center;color:#a0aec0;font-size:9.5pt">
-  机房故障智能诊断助手 · 技术文档 · v0.14.0<br>
+  机房故障智能诊断助手 · 技术文档 · v0.15.0<br>
   李一硕 · 2026 年 10 月
 </div>
 

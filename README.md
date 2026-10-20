@@ -69,6 +69,7 @@
 | v0.12.0 | 课表导入、作息配置、空余教室查询、教师姓名脱敏 | ✅ 已完成 |
 | v0.13.0 | 运行总览：影响上课判定、今日课程预警、调课建议 | ✅ 已完成 |
 | v0.14.0 | 课表页改为当天矩阵 + 调课建议；预警扩到今天和明天；列表分页 | ✅ 已完成 |
+| v0.15.0 | 桌面窗口版与 exe 打包；设置页；界面性能修复；导出落盘 | ✅ 已完成 |
 | — | 已在日常机房运维中实际使用 | ✅ 进行中 |
 
 > 版本号的单一来源是 `src/version.py`，改动版本时同步更新本表。
@@ -287,7 +288,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests -v
 ```
 
-当前 **326 个测试全部通过**。测试不调用真实大模型 API，无需配置 API Key。
+当前 **371 个测试全部通过**。测试不调用真实大模型 API，无需配置 API Key。
 
 重点覆盖了历史上真实出现过的缺陷，防止再次退化：
 
@@ -396,7 +397,7 @@ dsh-fault-diagnosis/
 │   ├── make_screenshots.py       # 自动生成 README 截图
 │   ├── ci_report.py              # CI 失败用例转 annotation
 │   └── export_conversation.py    # 导出 AI 对话记录
-├── tests/                        # 自动化测试（pytest，326 个）
+├── tests/                        # 自动化测试（pytest，371 个）
 ├── start.bat                     # 一键启动（Windows，双击即可）
 ├── start.sh                      # 一键启动（Linux / macOS）
 ├── .github/workflows/tests.yml   # CI：推送自动跑测试
