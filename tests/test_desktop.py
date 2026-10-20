@@ -81,6 +81,33 @@ class TestWaitReady:
             srv.close()
 
 
+class TestScreenSize:
+
+    def test_returns_positive_pair(self):
+        w, h = desktop._screen_size()
+        assert isinstance(w, int) and isinstance(h, int)
+        assert w >= 800 and h >= 600
+
+    def test_falls_back_when_tkinter_fails(self, monkeypatch):
+        """
+        拿不到屏幕尺寸时不能崩，要退回一个保守尺寸
+
+        窗口版没有控制台，这里抛异常用户只会看到"双击没反应"。
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == 'tkinter':
+                raise ImportError('模拟没有 tkinter')
+            return real_import(name, *a, **kw)
+
+        monkeypatch.setattr(builtins, '__import__', fake_import)
+        w, h = desktop._screen_size()
+        assert (w, h) == (1280, 860)
+
+
 class TestModule:
 
     def test_log_file_constant(self):

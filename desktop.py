@@ -39,7 +39,27 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 WINDOW_TITLE = '机房故障智能诊断助手'
-WINDOW_SIZE = (1280, 860)
+
+
+def _screen_size():
+    """
+    屏幕分辨率
+
+    用 tkinter 问，而不是写死 1280×860 ——
+    写死的话在 1080p 和 4K 上体验差很多，笔记本上又会超出屏幕。
+
+    tkinter 是标准库，不会多装东西；问不到就退回一个保守尺寸。
+    """
+    try:
+        import tkinter
+
+        root = tkinter.Tk()
+        root.withdraw()
+        size = (root.winfo_screenwidth(), root.winfo_screenheight())
+        root.destroy()
+        return size
+    except Exception:
+        return (1280, 860)
 
 
 def _log(msg):
@@ -99,12 +119,22 @@ def main():
 
     _log(f'窗口启动：{url}')
 
+    # 默认铺满屏幕。
+    #
+    # 用 maximized 而不是 fullscreen：fullscreen 连标题栏都没有，
+    # 用户不知道怎么退出；maximized 是"最大化"，还能拖、能还原、能点关闭。
+    #
+    # width/height 仍然按屏幕尺寸给，万一某个 WebView 后端不认 maximized，
+    # 窗口大小也是对的，不会只占屏幕一角。
+    w, h = _screen_size()
+
     webview.create_window(
         WINDOW_TITLE,
         url,
-        width=WINDOW_SIZE[0],
-        height=WINDOW_SIZE[1],
+        width=w,
+        height=h,
         min_size=(980, 640),
+        maximized=True,
         text_select=False,      # 界面是应用而不是网页，别让误拖选中大片文字
     )
     webview.start()

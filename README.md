@@ -169,6 +169,7 @@ echo $env:DEEPSEEK_API_KEY
 它用 pywebview 起一个内嵌 WebView2 的原生窗口，
 **页面代码一行没改** —— 只是换了个启动方式。
 
+- 打开即**最大化铺满屏幕**，自适应屏幕分辨率
 - 会自动挑一个空闲端口，不和已经开着的 Web 版抢 5000
 - 窗口版没有控制台，报错写进 `desktop-error.log`
 - 需要 `pip install pywebview`
