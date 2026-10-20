@@ -15,6 +15,8 @@ import time
 
 from openai import OpenAI
 
+import config
+
 # DeepSeek API 配置
 API_BASE = "https://api.deepseek.com"
 MODEL = "deepseek-chat"
@@ -216,14 +218,22 @@ SYSTEM_PROMPT = """你是一名高校机房的运维工程师，正在通过对�
 
 
 def get_client():
-    """创建 API 客户端，Key 从环境变量读取"""
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    """
+    创建 API 客户端
+
+    Key 的读取交给 config 模块：环境变量优先，其次 data/config.json。
+    （打包成 exe 给别人用时，对方多半没有环境变量，靠配置文件。）
+    """
+    api_key = config.get_api_key()
 
     if not api_key:
         raise ValueError(
-            "未找到 DEEPSEEK_API_KEY 环境变量。\n"
-            "请在系统环境变量中配置，或临时设置：\n"
-            "  $env:DEEPSEEK_API_KEY='你的key'"
+            "未配置 API Key。\n"
+            "两种方式任选其一：\n"
+            "  1. 设置环境变量 DEEPSEEK_API_KEY\n"
+            "     PowerShell:  $env:DEEPSEEK_API_KEY='你的key'\n"
+            "  2. 写进配置文件（桌面窗口版首次启动会弹窗引导）：\n"
+            "     " + config.config_file()
         )
 
     return OpenAI(api_key=api_key, base_url=API_BASE)

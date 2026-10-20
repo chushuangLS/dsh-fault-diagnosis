@@ -9,8 +9,10 @@
 import json
 import os
 
+import paths
+
 # 决策树数据文件路径
-TREE_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'decision_trees.json')
+TREE_FILE = paths.data_file('decision_trees.json')
 
 
 def load_trees():

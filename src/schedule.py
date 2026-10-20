@@ -30,10 +30,12 @@ import re
 
 from filelock import file_lock
 
+import paths
+
 # 课表与作息配置都存这一个文件：
 # 两者是强相关的（没有作息时间，课表就无法回答"现在哪间空着"），
 # 分开存反而要多维护一份一致性。
-DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'schedule.json')
+DATA_FILE = paths.data_file('schedule.json')
 
 # 星期名称 → 1-7（周一到周日）
 WEEKDAY_NAMES = ['星期一', '星期二', '星期三', '星期四',

@@ -28,7 +28,9 @@ import os
 
 from filelock import file_lock
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'classrooms.json')
+import paths
+
+DATA_FILE = paths.data_file('classrooms.json')
 
 
 def _empty():

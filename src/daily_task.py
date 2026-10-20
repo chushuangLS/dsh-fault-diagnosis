@@ -20,7 +20,9 @@ from datetime import datetime
 
 from filelock import file_lock
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'daily_tasks.json')
+import paths
+
+DATA_FILE = paths.data_file('daily_tasks.json')
 
 # 状态
 STATUS_PENDING = '待完成'

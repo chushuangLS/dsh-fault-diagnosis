@@ -27,7 +27,9 @@ from datetime import datetime
 
 from filelock import file_lock
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+import paths
+
+DATA_DIR = paths.data_dir()
 
 # 手工维护的知识库（提交进 git，人工编辑、评审、回滚）
 MANUAL_FILE = os.path.join(DATA_DIR, 'fault_cases.json')

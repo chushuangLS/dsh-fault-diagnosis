@@ -171,8 +171,31 @@ echo $env:DEEPSEEK_API_KEY
 
 - 打开即**最大化铺满屏幕**，自适应屏幕分辨率
 - 会自动挑一个空闲端口，不和已经开着的 Web 版抢 5000
-- 窗口版没有控制台，报错写进 `desktop-error.log`
+- 窗口版没有控制台，报错写进 `desktop-error.log`（在程序旁边）
 - 需要 `pip install pywebview`
+
+**打成 exe（不用装 Python）**
+
+```bash
+tools\build_exe.bat
+```
+
+产物在 `dist\机房故障智能诊断助手\`，**整个文件夹一起拷走**，双击里面的 exe 即可。
+
+几个必须知道的点：
+
+| 事项 | 说明 |
+|---|---|
+| **为什么是文件夹不是单文件** | 单文件运行时要把自己解压到临时目录，这一步实测被杀软拦了（`Could not create temporary directory`），换了临时目录也不行。文件夹版没有解包步骤。 |
+| **数据写在哪** | exe 同目录的 `data\`。**不能打进 exe** —— 打进去是只读临时目录，关掉程序记录全丢。 |
+| **首次运行** | 自动把知识库、决策树、空的台账骨架铺到 `data\`，不会覆盖已有数据。 |
+| **API Key** | 首次启动会弹窗让你填，存进 `data\config.json`。优先级：进程环境变量 → `config.json` → Windows 用户环境变量。 |
+| **pywebview 起不来时** | 自动退回 Edge 的「应用模式」开一个无地址栏窗口（看起来差一点，但肯定能开）。原因见下。 |
+
+关于 pywebview 的兜底：它在 Windows 上要经 pythonnet 加载 .NET 组件，
+打包后个别目录下会报 `Failed to resolve Python.Runtime.Loader.Initialize`。
+实测同一份程序在 A 目录能开、B 目录报错，原因没查清 ——
+所以加了一层兜底，不让用户看到「双击没反应」。
 
 <details>
 <summary>方式二：手动启动 Web 版</summary>

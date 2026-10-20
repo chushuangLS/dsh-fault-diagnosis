@@ -15,8 +15,10 @@ from datetime import datetime
 
 from filelock import file_lock
 
+import paths
+
 # 记录文件路径
-RECORD_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'repair_records.csv')
+RECORD_FILE = paths.data_file('repair_records.csv')
 
 # 表头
 # 说明：教学楼、数量、故障对象 三列是后加的，旧记录可能为空，读取时做兼容处理

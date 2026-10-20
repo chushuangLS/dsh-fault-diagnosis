@@ -39,6 +39,7 @@ from openpyxl.utils import get_column_letter
 
 import classroom
 import repair_log
+import paths
 
 # ---------------- 样式 ----------------
 
@@ -560,16 +561,16 @@ def export_to_file(path=None):
     """
     生成 Excel 并写到文件
 
-    参数：path - 目标路径；省略时写到项目根目录下的 exports/
+    参数：path - 目标路径；省略时写到程序目录下的 exports/
     返回：实际写入的路径
     """
     filename, data = export_to_bytes()
 
     if path is None:
-        out_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'exports',
-        )
+        # 打包成 exe 后不能再往 __file__ 推 —— 那是临时解包目录，退出就没了。
+        # exports 是用户要看的东西，跟数据放一起。
+        out_dir = os.path.join(paths.data_dir(), '..', 'exports')
+        out_dir = os.path.normpath(out_dir)
         os.makedirs(out_dir, exist_ok=True)
         path = os.path.join(out_dir, filename)
 

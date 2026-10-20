@@ -30,10 +30,14 @@ import daily_task
 import schedule
 import overview
 import version
+import paths
 
 # Flask 应用配置
-# templates 和 static 目录放在项目根下
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#
+# 模板和静态文件是只读资源，用 paths.res_dir()：
+# 开发时 = 项目根；打包成 exe 后 = PyInstaller 的解包目录（sys._MEIPASS）。
+# 如果这里仍用 __file__ 推，打包后路径会指向临时目录，页面直接 404。
+BASE_DIR = paths.res_dir()
 
 app = Flask(
     __name__,
@@ -41,6 +45,10 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, 'web', 'static'),
 )
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-me')
+
+# 首次运行时把知识库等初始文件铺到数据目录。
+# 只补缺失的文件，不会覆盖已有数据；仓库里这些文件本来就在，所以是空操作。
+paths.ensure_seed_files()
 
 # 默认密钥只适合本机自用。若部署到能被他人访问的环境，
 # 任何人都能伪造 session。这里在启动时明确警告，避免被忽略。

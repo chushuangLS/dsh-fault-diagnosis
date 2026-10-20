@@ -70,3 +70,6 @@ exports/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# PyInstaller 构建产物
+tools/_debug.spec
