@@ -35,6 +35,13 @@ if errorlevel 1 (
 )
 
 echo.
+echo Copying current data\ into the bundle ...
+python tools\bundle_data.py
+if errorlevel 1 (
+    echo [WARN] data copy failed, the app will start with empty data
+)
+
+echo.
 echo === Done ===
 echo Output folder: dist\
 echo Ship the WHOLE folder, not just the exe inside it.
