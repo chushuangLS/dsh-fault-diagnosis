@@ -223,20 +223,28 @@ def main():
 
     _log(f'窗口启动：{url}')
 
-    # 默认铺满屏幕。
+    # 默认铺满屏幕，但"还原尺寸"要给一个小一点的窗口。
+    #
+    # 之前这里把 width/height 也传成了屏幕尺寸，结果点还原按钮毫无变化 ——
+    # 因为还原后的尺寸就等于整屏，看起来像"缩不小"。
+    # 现在还原尺寸取屏幕的 85%，并且不超过 1440×900，
+    # 这样点还原、拖边框都能正常变小。
     #
     # 用 maximized 而不是 fullscreen：fullscreen 连标题栏都没有，
     # 用户不知道怎么退出；maximized 是"最大化"，还能拖、能还原、能点关闭。
     w, h = _screen_size()
+    normal_w = min(int(w * 0.85), 1440)
+    normal_h = min(int(h * 0.85), 900)
 
     try:
         webview.create_window(
             WINDOW_TITLE,
             url,
-            width=w,
-            height=h,
+            width=normal_w,
+            height=normal_h,
             min_size=(980, 640),
             maximized=True,
+            resizable=True,
             text_select=False,      # 界面是应用而不是网页，别让误拖选中大片文字
         )
         webview.start()
