@@ -35,6 +35,7 @@ desktop.ini
 
 # 日志
 *.log
+desktop-error.log     # 桌面窗口版的报错日志（窗口无控制台）
 logs/
 
 # 运维记录（含实际教室号和故障信息，不公开）

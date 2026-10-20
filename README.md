@@ -156,6 +156,23 @@ echo $env:DEEPSEEK_API_KEY
 .\start.bat -NoBrowser      # 不自动开浏览器
 ```
 
+**方式一之补充：桌面窗口版（Windows）**
+
+如果不想每次先起服务、再开浏览器，双击根目录的 `desktop.bat`：
+
+```
+双击 → 直接弹出一个窗口「机房故障智能诊断助手」
+没有地址栏、没有标签页、没有黑窗口
+关闭窗口 = 退出程序
+```
+
+它用 pywebview 起一个内嵌 WebView2 的原生窗口，
+**页面代码一行没改** —— 只是换了个启动方式。
+
+- 会自动挑一个空闲端口，不和已经开着的 Web 版抢 5000
+- 窗口版没有控制台，报错写进 `desktop-error.log`
+- 需要 `pip install pywebview`
+
 <details>
 <summary>方式二：手动启动 Web 版</summary>
 
