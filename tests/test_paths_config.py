@@ -17,6 +17,17 @@ import pytest
 import paths
 
 
+def _abs(*parts):
+    """
+    构造一个绝对路径（跨平台）
+
+    直接写 r'C:\\Apps\\x.exe' 在 Linux 上会出问题：
+    os.path.dirname 不把反斜杠当分隔符，dirname 会返回空。
+    所以统一用 os.sep 拼。
+    """
+    return os.path.join(os.path.abspath(os.sep), *parts)
+
+
 class TestFrozenDetection:
 
     def test_not_frozen_in_dev(self):
@@ -39,24 +50,25 @@ class TestFrozenDetection:
         PyInstaller 会把 web/templates 解得那儿；
         如果这里还按 __file__ 推，页面会 404。
         """
+        meipass = _abs('Temp', '_MEI123')
+        exe = _abs('Apps', '助手', '助手.exe')
+
         monkeypatch.setattr(sys, 'frozen', True, raising=False)
-        monkeypatch.setattr(sys, '_MEIPASS', r'C:\Temp\_MEI123', raising=False)
-        monkeypatch.setattr(sys, 'executable', r'C:\Apps\助手\助手.exe',
-                            raising=False)
+        monkeypatch.setattr(sys, '_MEIPASS', meipass, raising=False)
+        monkeypatch.setattr(sys, 'executable', exe, raising=False)
 
         assert paths.is_frozen() is True
-        assert paths.res_dir() == r'C:\Temp\_MEI123'
+        assert paths.res_dir() == meipass
         # 程序目录取 exe 所在目录，不是解包目录
-        assert paths.app_dir() == r'C:\Apps\助手'
+        assert paths.app_dir() == _abs('Apps', '助手')
 
     def test_frozen_without_meipass_falls_back(self, monkeypatch):
         monkeypatch.setattr(sys, 'frozen', True, raising=False)
-        monkeypatch.delenv('_MEIPASS', raising=False)
         monkeypatch.setattr(sys, '_MEIPASS', '', raising=False)
-        monkeypatch.setattr(sys, 'executable', r'C:\Apps\助手.exe',
-                            raising=False)
-        # 没有 _MEIPASS 时至少不能崩
-        assert paths.res_dir() == r'C:\Apps'
+        monkeypatch.setattr(sys, 'executable',
+                            _abs('Apps', '助手.exe'), raising=False)
+        # 没有 _MEIPASS 时至少不能崩，退回 exe 所在目录
+        assert paths.res_dir() == _abs('Apps')
 
 
 class TestDataDir:
