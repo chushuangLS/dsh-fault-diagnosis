@@ -149,7 +149,7 @@ body {
   padding: 5px 11px;
   border-radius: 100px;
   background: rgba(17, 23, 31, 0.82);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   font-size: var(--fs-xs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -370,7 +370,7 @@ button:disabled { cursor: not-allowed; }
 .entry-card {
   position: relative;
   background: var(--surface-1);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 28px 20px;
   cursor: pointer;
@@ -462,7 +462,7 @@ button:disabled { cursor: not-allowed; }
   gap: 28px;
   padding: 16px 34px;
   background: rgba(255, 255, 255, 0.05);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 100px;
   animation: cardIn 0.6s var(--ease) 0.36s both;
 }
@@ -556,7 +556,7 @@ button:disabled { cursor: not-allowed; }
 
   border-radius: 18px;
   background: rgba(19, 25, 33, 0.90);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
 
   /* 高度随内容，超出视口时才滚动 */
@@ -882,7 +882,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .msg.bot .bubble {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
 }
 .msg.user .bubble {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
@@ -945,7 +945,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 .composer input {
   flex: 1;
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px 16px;
   color: var(--text);
@@ -1122,7 +1122,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 
 .record {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 19px;
   transition: all 0.26s var(--ease);
@@ -1276,7 +1276,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 .kpi {
   position: relative;
   background: var(--surface-1);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 20px 18px;
   overflow: hidden;
@@ -1326,7 +1326,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 
 .chart-card {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
   animation: msgIn 0.45s var(--ease) both;
@@ -1460,7 +1460,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   padding: 16px 18px;
   margin-bottom: 18px;
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
@@ -1503,7 +1503,7 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .sched-col {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
   min-height: 180px;
@@ -2010,7 +2010,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   left: 50%;
   transform: translateX(-50%) translateY(10px);
   background: rgba(26, 33, 41, 0.95);
-  -webkit-  border: 1px solid rgba(59,130,246,0.35);
+  border: 1px solid rgba(59,130,246,0.35);
   color: #93c5fd;
   font-size: 13px;
   font-family: inherit;
@@ -2055,7 +2055,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   inset: 0;
   z-index: 200;
   background: rgba(0, 0, 0, 0.62);
-  -webkit-  display: flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -2070,7 +2070,7 @@ main { flex: 1; overflow: hidden; position: relative; }
   display: flex;
   flex-direction: column;
   background: rgba(20, 26, 33, 0.98);
-  -webkit-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 16px;
   box-shadow: 0 28px 70px -22px rgba(0, 0, 0, 0.95);
   animation: modalIn 0.32s var(--ease) both;
@@ -2890,7 +2890,7 @@ select option:hover {
 /* -------- 通用卡片 -------- */
 .ov-card {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
   margin-bottom: 16px;
@@ -3262,7 +3262,7 @@ select option:hover {
 /* -------- 课表 -------- */
 .sched-card {
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
@@ -3387,7 +3387,7 @@ select option:hover {
 .sdetail {
   margin-top: 16px;
   background: var(--panel);
-  -webkit-  border: 1px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
 }
