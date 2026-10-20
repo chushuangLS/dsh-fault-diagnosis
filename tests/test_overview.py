@@ -200,9 +200,38 @@ class TestCategoriesAndTrend:
         names = [x['category'] for x in items]
         assert '内存故障' in names
         assert '存储故障' in names
-        # 按次数降序
+        # 按数量降序
         assert [x['count'] for x in items] == sorted(
             [x['count'] for x in items], reverse=True)
+
+    def test_category_counts_machines_not_records(self, tmp_data):
+        """
+        统计的是损坏**台数**，不是上报**条数**
+
+        一条"第三排 5 台都开不了机"的记录，应该算 5 台而不是 1 条。
+        否则 1 条 5 台 和 1 条 1 台 在看板上长得一样。
+        """
+        repair_log.add_record(classroom='101', symptom='内存条松动',
+                              conclusion='x', status=repair_log.STATUS_PENDING,
+                              quantity=5)
+        repair_log.add_record(classroom='102', symptom='内存条松动',
+                              conclusion='x', status=repair_log.STATUS_PENDING,
+                              quantity=1)
+
+        items = overview.category_distribution()
+        mem = [x for x in items if x['category'] == '内存故障'][0]
+        assert mem['count'] == 6, '应为 5+1 台，不是 2 条'
+
+    def test_facility_counts_once_per_record(self, tmp_data):
+        """教室设施不是按台算的，每条记 1 处"""
+        repair_log.add_record(classroom='101', symptom='教室总闸跳闸',
+                              conclusion='x', status=repair_log.STATUS_PENDING,
+                              building='实验楼A',
+                              target=repair_log.TARGET_FACILITY)
+
+        items = overview.category_distribution()
+        fac = [x for x in items if x['category'] == '教室设施'][0]
+        assert fac['count'] == 1
 
     def test_trend_shape(self, tmp_data):
         t = overview.trend(days=14)

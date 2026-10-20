@@ -504,11 +504,21 @@ def suggest_rooms(sched, day, period, week, students, exclude=None, limit=3):
 
 
 def category_distribution():
-    """故障类型分布（用于看板的柱状图）"""
+    """
+    故障类型分布（按**损坏台数**统计，不是上报条数）
+
+    一条记录可能代表多台同因损坏的机器（"第三排 5 台都开不了机"），
+    所以这里累加「数量」字段，而不是数记录条数 ——
+    否则「1 条 5 台的记录」和「1 条 1 台的记录」会被算成一样多，
+    看板上显示不出真实的损坏规模。
+
+    教室设施的「数量」恒为 1（不是按台算的），
+    所以那一类显示的就是设施故障有几处。
+    """
     counts = {}
     for r in repair_log.load_records():
         cat = fault_category.classify(r)
-        counts[cat] = counts.get(cat, 0) + 1
+        counts[cat] = counts.get(cat, 0) + repair_log.get_quantity(r)
 
     items = [{'category': k, 'count': v}
              for k, v in sorted(counts.items(), key=lambda x: -x[1])]
