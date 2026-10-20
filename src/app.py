@@ -1030,6 +1030,9 @@ def api_schedule_room():
         'label': rd.get('label', ''),
         'seats': rd.get('seats'),
         'term': data.get('term') or {},
+        # 当前周由后端算 —— 前端只拿到开学日期和总周数，
+        # 自己推容易在跨学期、假期、时区上出错。
+        'week': schedule.current_week(data),
         'courses': masked.get('courses') or [],
     })
 

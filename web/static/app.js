@@ -3014,6 +3014,13 @@ async function refreshTaskOptions() {
 const SCHED_DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const SCHED_PERIODS = 12;
 
+// 作息设置里把 12 节分成三段展示，和 schedule.PERIOD_SECTIONS 保持一致
+const PERIOD_SECTIONS = [
+  { name: '上午', periods: [1, 2, 3, 4] },
+  { name: '下午', periods: [5, 6, 7, 8] },
+  { name: '晚上', periods: [9, 10, 11, 12] },
+];
+
 // 当前查看的日期与周次
 let schedDay = 0;          // 0 表示还没初始化
 let schedWeek = 0;
@@ -3901,8 +3908,8 @@ async function openRoomSchedule(building, room) {
     return;
   }
 
-  // 当前周：优先用学期信息算
-  const week = (schedSummary && schedSummary.week) || 1;
+  // 当前周由后端给（/api/schedule/room 现在返回 week）
+  const week = d.week || 1;
 
   const byCell = {};
   (d.courses || []).forEach(c => {
@@ -3930,6 +3937,7 @@ async function openRoomSchedule(building, room) {
 
   const weekNote = week ? `第 ${week} 周` : '当前周';
 
+  try {
   body.innerHTML = `
     <div class="sched-room-head">
       <span>${escapeHtml(d.label || '')}</span>
@@ -3938,11 +3946,19 @@ async function openRoomSchedule(building, room) {
     <div class="sched-grid-wrap">
       <table class="sched-grid">
         <thead>
-          <tr><th></th>${WEEKDAYS.map(w => `<th>${w.slice(-1)}</th>`).join('')}</tr>
+          <tr><th></th>${SCHED_DAYS.map(w => `<th>${w.slice(-1)}</th>`).join('')}</tr>
         </thead>
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>`;
+  } catch (err) {
+    // 宁可把错误摆出来，也不要停在"读取中…"上让人以为卡死了
+    console.error('渲染教室课表失败', err);
+    body.innerHTML = `<div class="sched-room-empty">
+        课表渲染失败
+        <span>${escapeHtml(err.message)}</span>
+      </div>`;
+  }
 }
 
 /* ============================================================
