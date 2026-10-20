@@ -114,14 +114,18 @@ def _serve(port):
                 debug=False, use_reloader=False, threaded=True)
 
 
-def _ask_api_key():
+def _ask_api_key(first_run=True):
     """
-    首次启动没配 Key 时弹一个输入框
+    弹一个输入框配 API Key
 
-    窗口版没有控制台，用户不可能知道要去看环境变量。
-    用 tkinter 的输入框（标准库）比让用户手改 JSON 友好。
+    两个入口：
+      · 首次启动发现没配 Key 时自动弹
+      · 菜单「设置 API Key」手动弹（用于 Key 过期、换账号）
 
-    返回 True 表示已经配好了。
+    后者是必要的：原来的判断只看"有没有 Key"，
+    Key 失效时那条路走不到，用户只能去手改 JSON。
+
+    返回 True 表示保存成功。
     """
     try:
         import tkinter
@@ -130,31 +134,84 @@ def _ask_api_key():
         _log('没有 tkinter，跳过了 Key 引导')
         return False
 
+    import config
+
+    if first_run:
+        prompt = ('首次使用需要填 DeepSeek API Key。\n'
+                  '申请地址：https://platform.deepseek.com/\n\n'
+                  '（留空则跳过，台账和课表照样能用，只是诊断不可用）')
+    else:
+        current = config.mask_key(config.get_api_key()) or '（当前未配置）'
+        prompt = (f'当前：{current}\n\n'
+                  '输入新的 DeepSeek API Key。\n'
+                  '留空取消，不会清掉已有的。')
+
     try:
         root = tkinter.Tk()
         root.withdraw()
         key = simpledialog.askstring(
-            '配置 API Key',
-            '首次使用需要填 DeepSeek API Key。\n'
-            '申请地址：https://platform.deepseek.com/\n\n'
-            '（留空则跳过，台账和课表照样能用，只是诊断不可用）',
-            parent=root,
-            show='*',
-        )
+            '配置 API Key', prompt, parent=root, show='*')
         root.destroy()
     except Exception:
         _log('弹窗失败：\n' + traceback.format_exc())
         return False
 
     if not key or not key.strip():
-        _log('用户跳过了 Key 配置')
+        _log('用户取消或留空，未改动 Key')
         return False
-
-    import config
 
     path = config.set_api_key(key)
     _log(f'Key 已保存到 {path}')
     return True
+
+
+def _menu_set_key():
+    """
+    菜单回调：设置 API Key
+
+    tkinter 的 root 必须在自己的线程里创建 ——
+    这个回调跑在 WebView 的 GUI 线程上，直接建 Tk 会卡住。
+    """
+    def work():
+        ok = _ask_api_key(first_run=False)
+        if ok:
+            # 顺带刷新一下窗口，让用户看到"已配置"的效果
+            try:
+                import webview
+                if webview.windows:
+                    webview.windows[0].evaluate_js('location.reload()')
+            except Exception:
+                pass
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _menu_open_data_dir():
+    """菜单回调：打开数据目录（备份、找配置文件都靠它）"""
+    try:
+        os.startfile(paths.data_dir())      # noqa: S606  Windows only
+    except Exception:
+        _log('打不开数据目录：\n' + traceback.format_exc())
+
+
+def _build_menu():
+    """
+    构建窗口菜单
+
+    pywebview 不可用时返回空表 —— 兜底的 Edge 窗口本来就没有菜单栏。
+    """
+    try:
+        from webview.menu import Menu, MenuAction, MenuSeparator
+    except Exception:
+        return []
+
+    return [
+        Menu('设置', [
+            MenuAction('设置 API Key…', _menu_set_key),
+            MenuSeparator(),
+            MenuAction('打开数据目录', _menu_open_data_dir),
+        ]),
+    ]
 
 
 def _open_edge_app(url):
@@ -246,6 +303,7 @@ def main():
             maximized=True,
             resizable=True,
             text_select=False,      # 界面是应用而不是网页，别让误拖选中大片文字
+            menu=_build_menu(),
         )
         webview.start()
         _log('窗口已关闭，程序退出')
