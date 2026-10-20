@@ -757,12 +757,35 @@ document.querySelectorAll('.chip').forEach(chip => {
   const btn = document.getElementById('btn-export-repair');
   if (!btn) return;
 
+  // 桌面窗口（pywebview）里没有浏览器下载通道：
+  // winforms 后端没有实现 WebView2 的 DownloadStarting，
+  // a.click() 触发的下载会被静默丢弃 —— 用户看到的就是"没反应"。
+  // 所以窗口里改成"服务端存盘 + 显示路径"，浏览器里仍走下载。
+  //
+  // 这个判断必须放在点击时做：pywebview 是在页面加载之后才注入
+  // window.pywebview 的，脚本加载时就判断会永远是 false。
+  function inDesktop() {
+    return !!window.pywebview;
+  }
+
+  function showResult(html) {
+    const box = document.getElementById('export-result');
+    if (!box) return;
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+  }
+
   btn.addEventListener('click', async () => {
     const original = btn.textContent;
     btn.disabled = true;
     btn.textContent = '正在生成…';
 
     try {
+      if (inDesktop()) {
+        await exportToDisk();
+        return;
+      }
+
       const res = await fetch('/api/export/repair');
 
       if (!res.ok) {
@@ -802,6 +825,30 @@ document.querySelectorAll('.chip').forEach(chip => {
       btn.textContent = original;
     }
   });
+
+  /** 桌面窗口版：让后端直接写文件，然后把路径显示出来 */
+  async function exportToDisk() {
+    const res = await fetch('/api/export/repair/save', { method: 'POST' });
+    const d = await res.json();
+
+    if (!d.ok) {
+      showResult(`<span class="er-bad">导出失败：${escapeHtml(d.message || '未知原因')}</span>`);
+      return;
+    }
+
+    const kb = d.size ? ` · ${Math.round(d.size / 1024)} KB` : '';
+    showResult(`
+      <span class="er-ok">已导出 ${escapeHtml(d.filename)}${kb}</span>
+      <span class="er-path">${escapeHtml(d.path)}</span>
+      <button class="btn-ghost btn-sm er-open">打开所在文件夹</button>`);
+
+    const openBtn = document.querySelector('#export-result .er-open');
+    if (openBtn) {
+      openBtn.addEventListener('click', () => {
+        fetch('/api/export/open-folder', { method: 'POST' }).catch(() => {});
+      });
+    }
+  }
 })();
 
 function escapeHtml(s) {

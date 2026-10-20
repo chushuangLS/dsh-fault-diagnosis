@@ -538,6 +538,62 @@ def api_export_repair():
     )
 
 
+@app.route('/api/export/repair/save', methods=['POST'])
+def api_export_repair_save():
+    """
+    导出到本地文件，返回路径（桌面窗口版用）
+
+    为什么不走浏览器下载：
+      桌面窗口用的是 pywebview 的 winforms 后端，它没有实现 WebView2 的
+      DownloadStarting —— 点导出会被静默丢弃，用户看到的就是"没反应"。
+      （edgechromium 后端实现了，但我们用的不是它。）
+
+      这个工具本来就在本机跑，直接把文件写到磁盘、告诉用户路径更可靠，
+      也不用依赖任何下载通道。
+
+    文件写到 <数据目录>/../exports/，和报表一起放。
+    """
+    if not _is_local_request():
+        return jsonify({'ok': False,
+                        'message': '只允许在本机导出'}), 403
+
+    try:
+        import excel_export
+        path = excel_export.export_to_file()
+    except ImportError:
+        return jsonify({'ok': False, 'message': '导出功能不可用：缺少 openpyxl'}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'message': f'导出失败：{e}'}), 500
+
+    return jsonify({
+        'ok': True,
+        'path': path,
+        'filename': os.path.basename(path),
+        'folder': os.path.dirname(path),
+        'size': os.path.getsize(path) if os.path.exists(path) else 0,
+    })
+
+
+@app.route('/api/export/open-folder', methods=['POST'])
+def api_export_open_folder():
+    """打开导出的文件所在文件夹（仅本机、仅 Windows）"""
+    if not _is_local_request():
+        return jsonify({'ok': False, 'message': '只允许在本机操作'}), 403
+
+    import excel_export  # noqa: F401  确保模块可用
+    folder = os.path.normpath(os.path.join(paths.data_dir(), '..', 'exports'))
+
+    try:
+        if os.name != 'nt':
+            return jsonify({'ok': False, 'message': '该功能仅支持 Windows',
+                            'folder': folder}), 400
+        os.makedirs(folder, exist_ok=True)
+        os.startfile(folder)      # noqa: S606
+        return jsonify({'ok': True, 'folder': folder})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e), 'folder': folder}), 500
+
+
 @app.route('/api/statistics', methods=['GET'])
 def api_statistics():
     """统计数据（用于数据看板）"""

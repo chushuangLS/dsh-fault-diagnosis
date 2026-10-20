@@ -3658,3 +3658,26 @@ select option:hover {
   color: var(--text-faint);
   margin-left: 6px;
 }
+/* 导出结果提示（桌面窗口里没有浏览器下载，改为显示路径） */
+.export-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 2px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: rgba(34, 197, 94, .07);
+  border: 1px solid rgba(34, 197, 94, .22);
+  font-size: 12px;
+}
+.export-result .er-ok { color: #86efac; font-weight: 500; }
+.export-result .er-bad { color: #fca5a5; font-weight: 500; }
+.export-result .er-path {
+  color: var(--text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  flex: 1;
+  min-width: 200px;
+}
