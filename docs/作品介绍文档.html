@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>作品介绍文档 · 机房故障智能诊断助手</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 16mm 16mm;
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-family: "Microsoft YaHei", sans-serif;
+      font-size: 9pt;
+      color: #9aa5b1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+    background: #fff;
+    margin: 0;
+    padding: 0 0 40px;
+  }
+  h1 {
+    font-size: 20pt;
+    color: #0f2544;
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 10px;
+    margin: 26px 0 16px;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 13pt;
+    color: #1e40af;
+    margin: 18px 0 8px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11pt;
+    color: #2d3748;
+    margin: 14px 0 6px;
+    page-break-after: avoid;
+  }
+  p { margin: 0 0 7px; }
+  ul, ol { margin: 0 0 8px; padding-left: 22px; }
+  li { margin-bottom: 3px; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: #0f2544;
+  }
+  pre {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #2563eb;
+    border-radius: 4px;
+    padding: 9px 12px;
+    overflow-x: auto;
+    font-size: 9pt;
+    line-height: 1.5;
+    margin: 0 0 9px;
+    page-break-inside: avoid;
+  }
+  pre code { background: none; padding: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10px;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #eff6ff;
+    color: #1e40af;
+    text-align: left;
+    padding: 6px 9px;
+    border: 1px solid #cbd5e1;
+    font-weight: 600;
+  }
+  td {
+    padding: 5px 9px;
+    border: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  .callout {
+    background: #eff6ff;
+    border-left: 3px solid #2563eb;
+    padding: 9px 13px;
+    margin: 0 0 10px;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .callout.warn {
+    background: #fffbeb;
+    border-left-color: #f59e0b;
+  }
+  .callout.ok {
+    background: #f0fdf4;
+    border-left-color: #22c55e;
+  }
+  figure {
+    margin: 0 0 12px;
+    page-break-inside: avoid;
+    text-align: center;
+  }
+  figure img {
+    max-width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+  }
+  figcaption {
+    font-size: 9pt;
+    color: #64748b;
+    margin-top: 4px;
+  }
+  .cover { text-align: center; padding: 40px 0 20px; }
+  .cover .tag {
+    display: inline-block;
+    border: 1px solid #2563eb;
+    color: #2563eb;
+    border-radius: 20px;
+    padding: 4px 16px;
+    font-size: 9.5pt;
+    margin-bottom: 22px;
+  }
+  .cover h1 {
+    font-size: 28pt;
+    border: none;
+    margin: 0 0 8px;
+    padding: 0;
+    color: #0f2544;
+  }
+  .cover .sub {
+    font-size: 12pt;
+    color: #475569;
+    margin-bottom: 30px;
+  }
+  .meta {
+    width: 70%;
+    margin: 0 auto;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 10pt;
+  }
+  .meta td {
+    border: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 7px 10px;
+  }
+  .meta td:first-child { color: #64748b; width: 34%; text-align: right; }
+  .meta td:last-child { color: #1a1a1a; text-align: left; }
+  .pagebreak { page-break-after: always; }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 0 0 12px;
+  }
+  .kpi-box {
+    border: 1px solid #e2e8f0;
+    border-top: 2px solid #2563eb;
+    border-radius: 5px;
+    padding: 9px 6px;
+    text-align: center;
+  }
+  .kpi-box b { display: block; font-size: 15pt; color: #1e40af; }
+  .kpi-box span { font-size: 8.5pt; color: #64748b; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 封面 ==================== -->
+<div class="cover">
+  <div class="tag">第九届传智杯 AI 创新应用挑战赛 · 省赛</div>
+  <h1>机房故障智能诊断助手</h1>
+  <div class="sub">让一个值班员，也能管好一个机房</div>
+
+  <table class="meta">
+    <tr><td>作品名称</td><td>机房故障智能诊断助手</td></tr>
+    <tr><td>参赛赛道</td><td>AI 创新应用挑战赛</td></tr>
+    <tr><td>作者</td><td>李一硕</td></tr>
+    <tr><td>学校</td><td>沧州交通学院 · 物联网工程</td></tr>
+    <tr><td>作品版本</td><td>v0.15.0</td></tr>
+    <tr><td>提交日期</td><td>2026 年 10 月</td></tr>
+  </table>
+</div>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 一 ==================== -->
+<h1>一、项目详情及使用方式</h1>
+
+<h2>1.1 这个项目解决什么问题</h2>
+
+<p>
+学校机房的一线值班员大多是刚招进来的大一、大二学生。
+他们会判断「这台电脑好像坏了」，但说不清「到底哪儿坏了」——
+是电源、内存、还是主板？是一台还是整排？
+</p>
+
+<p>
+于是每天都在发生三件事：
+</p>
+
+<ul>
+  <li><b>报修说不清</b>：记录里写着「电脑打不开」，维修师傅到了现场才发现是电源线松了</li>
+  <li><b>记录散落</b>：故障记在群里、纸上、脑子里，问「这间教室上周坏过几次」没人答得上来</li>
+  <li><b>判断不了影响</b>：知道机房坏了设备，但不知道明天早上八点的课还上不上得了</li>
+</ul>
+
+<p>
+这个项目把这条链路补上了：<b>从一句模糊的描述，一路推到「哪节课上不了、可以挪到哪」</b>。
+</p>
+
+<pre><code>记录故障 → 区分故障对象 → 故障分类 → 发现反复故障
+        → 判定是否影响上课 → 结合课表与作息
+        → 算出哪几节课受影响 → 匹配当前空闲的教室</code></pre>
+
+<h2>1.2 当前数据规模</h2>
+
+<div class="kpi-grid">
+  <div class="kpi-box"><b>19</b><span>间教室已录</span></div>
+  <div class="kpi-box"><b>1576</b><span>台电脑</span></div>
+  <div class="kpi-box"><b>1170</b><span>条课表课程</span></div>
+  <div class="kpi-box"><b>371</b><span>个自动化测试</span></div>
+</div>
+
+<p>
+作者本人负责 23 间机房、约 1840 台计算机的日常运行保障，
+其中 19 间的台账、课表和设备状态已完整接入本系统。
+</p>
+
+<h2>1.3 三种使用方式</h2>
+
+<table>
+  <tr>
+    <th style="width:24%">形态</th>
+    <th>怎么用</th>
+    <th style="width:22%">适合谁</th>
+  </tr>
+  <tr>
+    <td><b>桌面窗口版</b></td>
+    <td>双击 <code>机房故障智能诊断助手.exe</code>，直接弹出一个最大化窗口。
+        不用装 Python，不用开浏览器，没有控制台</td>
+    <td><b>推荐</b>，值班室电脑</td>
+  </tr>
+  <tr>
+    <td>Web 版</td>
+    <td>双击 <code>start.bat</code>，自动起服务并打开浏览器</td>
+    <td>开发调试、临时演示</td>
+  </tr>
+  <tr>
+    <td>命令行版</td>
+    <td><code>python main.py</code></td>
+    <td>无图形界面环境</td>
+  </tr>
+</table>
+
+<h2>1.4 一次典型的使用（约 90 秒）</h2>
+
+<ol>
+  <li><b>描述现象</b>：值班员输入「C104 有台电脑开不了机」</li>
+  <li><b>回答问题</b>：系统一次只问一个问题（指示灯亮吗、风扇转吗），逐轮缩小范围</li>
+  <li><b>得到结论</b>：判断为电源故障，并确认影响数量</li>
+  <li><b>自动落账</b>：结论直接生成一条报修记录，不用手工抄</li>
+  <li><b>看影响</b>：运行总览立即提示「这间教室明天 1–4 节的课有风险」</li>
+  <li><b>给方案</b>：课表页点这门课，直接列出同层、座位合适、连续空闲的替代教室</li>
+</ol>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 二 ==================== -->
+<h1>二、项目亮点</h1>
+
+<h2>2.1 判断的是「能不能上课」，不是「坏了几台」</h2>
+
+<p>
+这是整个项目最核心的设计判断。
+</p>
+
+<p>
+设备台账里「坏了几台」是最容易被统计出来的数字，但它回答不了运维每天真正要回答的问题：
+</p>
+
+<div class="callout">
+  <b>明天早上八点，这间教室的课还上得了吗？</b>
+</div>
+
+<p>
+78 人的课坏 2 台，照样能上；教师机坏了，一台不缺也上不了。
+所以判定改成四条，命中任一即算「影响上课」：
+</p>
+
+<table>
+  <tr><th style="width:22%">条件</th><th>判定依据</th></tr>
+  <tr><td><b>整间跳闸</b></td><td>未解决的教室设施故障，且现象含总闸 / 跳闸 / 停电 / 短路 / 漏电</td></tr>
+  <tr><td><b>整间断网</b></td><td>故障对象是教室设施，且提到交换机 / 上联 / 路由器（机房课离不开网络）</td></tr>
+  <tr><td><b>教师机故障</b></td><td>未解决故障出现在教师机 / 讲台</td></tr>
+  <tr><td><b>座位不够</b></td><td>可用台数 &lt; 该节次选课人数</td></tr>
+</table>
+
+<p>
+空调故障<b>不计入</b> —— 课还能上。这个取舍是刻意的。
+</p>
+
+<h2>2.2 预警往后看两天，而且一间教室一天只出一条</h2>
+
+<p>
+最早的实现只扫「今天」。结果周日晚上打开系统时，今天没课 → 整块空白，
+而明天一早八点的课此刻就受着故障影响，完全看不到。
+</p>
+
+<p>
+现在范围是<b>今天 + 明天</b>，每条标清「今天 周六」「明天 周一」，
+并且<b>按「教室 + 日期」合并</b>：
+</p>
+
+<pre><code>合并前  14 条（409 一间教室就占 5 条，面板全是同一间）
+合并后   2 条
+  明天 周一  第 1–12 节  第二实验楼-409   12 节课   整间断网   最多 74 人
+  明天 周一  第 5–6 节   第一实验楼-C110    2 节课   可用 71 台 &lt; 72 人</code></pre>
+
+<h2>2.3 调课建议：同层优先，座位最接近，连续空闲最多</h2>
+
+<p>
+教室坏了，最急的不是「这台怎么修」，而是<b>这节课去哪上</b>。
+</p>
+
+<p>
+点课表里的任意一门课，直接列出可用的替代教室，排序规则是：
+</p>
+
+<ol>
+  <li><b>同层优先</b> —— 学生搬电脑最省事（楼层由教室编号首位数判断：C104 → 1 楼）</li>
+  <li><b>座位数最接近</b> —— 装得下，但别浪费大教室</li>
+  <li><b>连续空闲最多</b> —— 连堂课要保证整段都空</li>
+</ol>
+
+<p>
+底部同时写清楚<b>为什么排除了其他教室</b>：几间座位不够、几间目标时段有课。
+把取舍摆出来，使用者才知道这个建议靠不靠谱。
+</p>
+
+<div class="callout warn">
+  <b>调课建议只是建议。</b>教务系统才是权威来源，本系统不提供「一键调课」，
+  只负责在三十秒内让人做出决定。
+</div>
+
+<h2>2.4 AI 只负责「判断」，不负责「维修」</h2>
+
+<p>
+这个项目对 AI 的定位很克制：
+</p>
+
+<table>
+  <tr><th style="width:30%">谁</th><th>做什么</th></tr>
+  <tr><td><b>AI</b></td><td>把「电脑打不开」推到「电源供应器损坏」—— 回答<b>是什么坏了</b></td></tr>
+  <tr><td><b>人</b></td><td>决定修不修、报不报、要不要调课 —— 回答<b>该怎么办</b></td></tr>
+</table>
+
+<p>
+所以对话里绝不出现「把内存条拔下来重新插」这类操作指引 ——
+一线值班员的职责是判断和上报，不是拆机箱。
+</p>
+
+<h2>2.5 反复故障：同一处反复坏，指向的是根因</h2>
+
+<p>
+同一间教室、同一类故障累计 ≥3 次时单独列出。
+反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳 ——
+这类信息在逐条记录里看不出来，必须聚合。
+</p>
+
+<h2>2.6 数据不出本机，教师姓名脱敏在服务端</h2>
+
+<p>
+课表里有真实教师姓名，作品中不得出现。脱敏放在<b>接口返回时</b>做，
+而不是前端 —— 前端做的话，真名仍然在接口 JSON 里，打开开发者工具就能看到。
+</p>
+
+<p>
+全部数据存放在程序同目录的 <code>data/</code> 下，不联网、不上传。
+</p>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 三 ==================== -->
+<h1>三、AI 技术落地与测试情况</h1>
+
+<h2>3.1 AI 在项目里具体落在三个地方</h2>
+
+<table>
+  <tr><th style="width:26%">位置</th><th>做什么</th><th style="width:24%">技术</th></tr>
+  <tr>
+    <td><b>对话式逐层排查</b></td>
+    <td>根据使用者的描述，一次只问一个最关键的问题，逐轮缩小范围，
+        最终给出故障原因与影响数量</td>
+    <td>DeepSeek API + 强约束系统提示词</td>
+  </tr>
+  <tr>
+    <td><b>知识库检索增强</b></td>
+    <td>在提问前先检索历史案例，把最相关的几条塞进上下文，
+        让判断基于真实积累而不是泛泛而谈</td>
+    <td>轻量 RAG：3-gram + 同义词归一，无向量库</td>
+  </tr>
+  <tr>
+    <td><b>知识库自动沉淀</b></td>
+    <td>每次诊断结束后，把「现象 → 原因」自动写入案例库，
+        人工案例与自动案例分文件存放，互不污染</td>
+    <td>去重 + 并发写入保护</td>
+  </tr>
+</table>
+
+<h2>3.2 怎么约束 AI 的输出</h2>
+
+<p>
+大模型最容易犯的毛病是「一次给太多」和「不懂装懂」。
+系统提示词里写死了这几条：
+</p>
+
+<pre><code>· 一次只问一个问题，问完等回答
+· 严禁一次列出多个排查步骤
+· 严禁输出大段原理和解释
+· 严禁重复已经排除过的检查项
+· 严禁使用「首先、其次、最后」这种结构化列点
+· 不确定就说不确定，不要编一个原因</code></pre>
+
+<p>
+这些规则不只写在提示词里，也写进了测试 ——
+产出格式不合规会被识别出来。
+</p>
+
+<h2>3.3 测试情况</h2>
+
+<div class="kpi-grid">
+  <div class="kpi-box"><b>371</b><span>自动化测试</span></div>
+  <div class="kpi-box"><b>4</b><span>CI 平台组合</span></div>
+  <div class="kpi-box"><b>90</b><span>次提交</span></div>
+  <div class="kpi-box"><b>15</b><span>个版本迭代</span></div>
+</div>
+
+<table>
+  <tr><th style="width:44%">测试文件</th><th style="width:12%">用例数</th><th>覆盖内容</th></tr>
+  <tr><td><code>test_schedule.py</code></td><td>56</td><td>课表解析、脱敏、周次推算、空余查询</td></tr>
+  <tr><td><code>test_overview.py</code></td><td>47</td><td>影响上课判定、断网、预警跨天、调课筛选</td></tr>
+  <tr><td><code>test_quantity_and_status.py</code></td><td>38</td><td>数量解析、状态迁移、批量登记</td></tr>
+  <tr><td><code>test_knowledge.py</code></td><td>37</td><td>检索质量、假阳性防护、自动沉淀</td></tr>
+  <tr><td><code>test_fault_category.py</code></td><td>36</td><td>故障细分类、反复故障阈值</td></tr>
+  <tr><td><code>test_excel_export.py</code></td><td>32</td><td>报表口径、纵向合并、合计行</td></tr>
+  <tr><td>其余 10 个文件</td><td>125</td><td>台账、并发锁、路径解析、桌面启动器等</td></tr>
+</table>
+
+<p>
+CI 在 Windows 与 Ubuntu 两个操作系统、Python 3.10 与 3.12 两个版本上各跑一遍，
+共四个组合。测试不调用真实大模型 API，因此不需要 Key 也能跑。
+</p>
+
+<h2>3.4 AI 出错时，是怎么被发现和纠正的</h2>
+
+<p>
+「用 AI 做项目」最大的风险不是它写不出代码，而是<b>它写错的时候看起来是对的</b>。
+举一个真实发生的例子。
+</p>
+
+<h3>故障分类器把「电脑打不开」判成了「显示故障」</h3>
+
+<p>
+最初的分类器同时匹配「故障现象」和「诊断结论」两处文本。
+十八条例题里有三条判错，而且错得很一致 —— 都往「显示故障」偏。
+</p>
+
+<p>
+查下来原因很清楚：诊断结论里包含鉴别诊断，比如
+</p>
+
+<pre><code>换线后显示器正常，问题在主机端</code></pre>
+
+<p>
+这句话本意是<b>排除</b>显示问题，但关键词匹配只看到「显示器」，于是判成了显示故障。
+</p>
+
+<div class="callout ok">
+  <b>修复：改成只按「故障现象」判断。</b>
+  故障现象是值班员自己写的短句，稳定、没有干扰；
+  诊断结论里全是推理过程，不适合做分类依据。改完之后 18 条全对。
+</div>
+
+<p>
+这类问题靠「看一眼觉得没问题」是发现不了的，必须靠固定的测试集。
+所以后续每加一个分类规则，都要先跑一遍历史数据。
+</p>
+
+<h3>另一个例子：一条测试因为错误的原因而通过</h3>
+
+<p>
+并发沉淀的测试曾经用 8 条「只差一个字符」的症状当作不同故障，
+而系统的去重逻辑会把它们正确判为重复。
+在 Windows 上线程启动慢，8 个线程恰好在任何写入之前都查完了重，
+于是全部写入、测试通过；换到 Linux，进程启动快，立刻失败。
+</p>
+
+<div class="callout warn">
+  <b>结论：结论取决于线程时序的测试，测的不是业务规则。</b>
+  现在这条测试改成用真正不同的症状，并验证「移除修复后测试会立即失败」。
+</div>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 四 ==================== -->
+<h1>四、关键技术</h1>
+
+<h2>4.1 轻量 RAG：不引入向量库</h2>
+
+<p>
+知识库规模不大（手工案例 23 条 + 自动沉淀），引入向量数据库和嵌入模型得不偿失。
+最终实现是<b>字符 3-gram 切分 + 同义词归一 + 加权打分</b>，纯 Python，零依赖。
+</p>
+
+<p>
+迭代中发现过一个典型问题：用户搜「整间教室断网」检索不到，
+因为案例正文写的是「无法上网」。<b>同义词表没打通，加分永远加不上。</b>
+修复方式是切分前先扫描原文做同义词归一。
+</p>
+
+<h2>4.2 设备状态四态模型</h2>
+
+<p>
+设备不是「好」和「坏」两态。实际运维里有第三种：
+<b>可以自己修</b>（比如驱动问题、线松了），不需要报修。
+所以模型是四态：
+</p>
+
+<pre><code>未报修  →  可自修  →  已报修  →  已解决
+                ↑                    |
+                └────── 重置 ────────┘</code></pre>
+
+<p>
+这个模型直接决定了台账的排序、统计口径和看板上的「待处理」数量。
+</p>
+
+<h2>4.3 跨平台可重入文件锁</h2>
+
+<p>
+Flask 默认多线程，两个请求可能同时「读-改-写」同一个数据文件。
+没有锁时，后写的会覆盖先写的，直接丢数据。
+</p>
+
+<p>
+最终实现是<b>两层锁</b>：进程内 <code>threading.RLock</code> + 跨进程文件锁
+（Linux 用 <code>fcntl</code>，Windows 用 <code>msvcrt</code>）。
+第二层必须可重入，否则内层调用会死锁。
+</p>
+
+<h2>4.4 教务课表解析</h2>
+
+<p>
+学校导出的是一间教室一个 <code>.xls</code> 文件，格子里是五段式内容：
+</p>
+
+<pre><code>专业软件CAD/SU/(5-5节)1-8周/石嘉伟/专业软件CAD/SU-0002/选课人数：26</code></pre>
+
+<p>
+难点在于<b>课程名和教学班名里都可能带斜杠</b>，按 <code>/</code> 硬切会碎成 7 段。
+最终用「<code>(N-N节)X-Y周</code>」这一段做锚点，前后分别处理。
+文件格式按<b>文件头</b>判断而不是后缀（学校系统的后缀经常不准）：
+OLE2 走 <code>xlrd</code>，ZIP 走 <code>openpyxl</code>。
+</p>
+
+<h2>4.5 桌面化与打包</h2>
+
+<p>
+Web 形态每次要先起服务再开浏览器，还留一个控制台窗口，演示和值班都别扭。
+最终用 pywebview 起一个内嵌 WebView2 的原生窗口，<b>页面代码一行没改</b>，
+只换了启动方式。
+</p>
+
+<p>
+打包过程中暴露了三个原本不存在的问题：
+</p>
+
+<table>
+  <tr><th style="width:28%">问题</th><th>处理</th></tr>
+  <tr>
+    <td>数据不能打进 exe</td>
+    <td>打包后 <code>__file__</code> 指向临时解包目录，数据写进去程序一关就清空。
+        拆成「只读资源」与「可写数据」两条路径</td>
+  </tr>
+  <tr>
+    <td>单文件 exe 起不来</td>
+    <td>每次运行要解压自己，这一步被杀软拦下。改为文件夹版，没有解包步骤</td>
+  </tr>
+  <tr>
+    <td>API Key 读不到</td>
+    <td>三级来源：进程环境变量 → 配置文件 → Windows 用户环境变量（直接读注册表）</td>
+  </tr>
+</table>
+
+<h2>4.6 界面性能：两个被「看着还行」掩盖的问题</h2>
+
+<p>
+两个性能问题都不是「代码写得慢」，而是用错了渲染路径。
+</p>
+
+<p>
+<b>其一</b>：全站 16 种元素用了背景模糊，共 35 处，包括每一条报修记录、
+课表表头的 12 个格子。背景静态时看不出问题，一旦背景动起来，
+这些区域每帧都要重新做一遍高斯模糊。
+</p>
+
+<p>
+<b>其二</b>：背景动画卡顿。在打包后的窗口里插临时帧率表测量：
+</p>
+
+<table>
+  <tr><th style="width:40%">条件</th><th>整页帧率</th><th>背景每帧绘制耗时</th></tr>
+  <tr><td>背景限 20fps</td><td>145–182 fps</td><td>—</td></tr>
+  <tr><td>背景提到 60fps</td><td><b>46–55 fps</b></td><td><b>1.0 ms</b></td></tr>
+</table>
+
+<div class="callout">
+  <b>绘制只要 1ms，帧率却掉了三分之二 —— 瓶颈不在绘制，在合成。</b>
+  DPR=2 时那块全屏画布是 730 万像素，每秒要重新合成 60 次。
+  降到 1 倍分辨率（面积 1/4）后恢复。
+</div>
+
+<h2>4.7 技术栈</h2>
+
+<table>
+  <tr><th style="width:20%">层</th><th>选型</th></tr>
+  <tr><td>后端</td><td>Python 3.10+ / Flask / openpyxl / xlrd</td></tr>
+  <tr><td>AI</td><td>DeepSeek API（openai SDK）</td></tr>
+  <tr><td>前端</td><td>原生 HTML / CSS / JavaScript，<b>零构建工具、零前端框架</b></td></tr>
+  <tr><td>图表</td><td>ECharts（本地引入，不依赖 CDN）</td></tr>
+  <tr><td>桌面</td><td>pywebview + WebView2，PyInstaller 打包</td></tr>
+  <tr><td>测试</td><td>pytest 371 个用例 + GitHub Actions 四平台 CI</td></tr>
+</table>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 五 ==================== -->
+<h1>五、项目相关的图片</h1>
+
+<figure>
+  <img src="screenshots/01-landing.png" alt="落地页">
+  <figcaption>图 1　落地页：三个入口，背景为动态线条</figcaption>
+</figure>
+
+<figure>
+  <img src="screenshots/02-diagnosis.png" alt="AI 诊断对话">
+  <figcaption>图 2　AI 逐层排查：一次只问一个问题</figcaption>
+</figure>
+
+<figure>
+  <img src="screenshots/03-records.png" alt="报修台账">
+  <figcaption>图 3　报修台账：结论自动落账，可按状态筛选与导出 Excel</figcaption>
+</figure>
+
+<div class="pagebreak"></div>
+
+<figure>
+  <img src="screenshots/04-overview.png" alt="运行总览">
+  <figcaption>图 4　运行总览：五项 KPI + 即将受影响的课 + 教室状态网格</figcaption>
+</figure>
+
+<figure>
+  <img src="screenshots/05-schedule.png" alt="课表矩阵">
+  <figcaption>图 5　课表页：一屏摊开当天全部教室 × 节次，空格子即空闲</figcaption>
+</figure>
+
+<div class="pagebreak"></div>
+
+<figure>
+  <img src="screenshots/08-classroom-detail.png" alt="教室详情">
+  <figcaption>图 6　教室详情：设备状态由台账自动统计，无需手工填写</figcaption>
+</figure>
+
+<figure>
+  <img src="screenshots/06-daily-tasks.png" alt="日常报备">
+  <figcaption>图 7　日常报备：老师临时需求（装软件、加设备）的待办清单</figcaption>
+</figure>
+
+<div class="pagebreak"></div>
+
+<!-- ==================== 六 ==================== -->
+<h1>六、是否发表过或获奖</h1>
+
+<div class="callout ok">
+  <b>本作品为原创，此前未在任何平台发表、未参加任何其他赛事、未获得任何奖项，
+  也未转让知识产权。</b>
+</div>
+
+<ul>
+  <li>代码仓库自 2026 年起按细粒度提交逐步构建，共 <b>90 次提交</b>，
+      非一次性生成</li>
+  <li>首次提交仅包含 <code>.gitignore</code>，可追溯完整演进过程</li>
+  <li>作品未在任何公开平台发布过，也未授权他人使用</li>
+  <li>本作品为本次赛事首次提交</li>
+</ul>
+
+<!-- ==================== 七 ==================== -->
+<h1>七、是否在其他项目基础上优化</h1>
+
+<div class="callout ok">
+  <b>不是。本作品从零设计、从零实现，没有基于任何已有项目或开源模板。</b>
+</div>
+
+<p>
+但有两点需要如实说明，它们体现的是<b>设计过程中的取舍</b>，不是"在别人作品上改"：
+</p>
+
+<h2>7.1 一个被验证后主动放弃的方案</h2>
+
+<p>
+项目早期实现过「决策树逐步诊断」：把每种故障的排查路径做成固定节点树。
+做出来之后发现不可行 ——
+</p>
+
+<ul>
+  <li>每增加一种故障都要手工编写大量节点，维护成本极高</li>
+  <li>分支写死，覆盖不了真实故障的多样性</li>
+  <li>新人遇到树里没有的分支就卡住了</li>
+</ul>
+
+<p>
+最终放弃，改为大模型驱动的对话式排查。相关代码保留在仓库中备查，
+<b>这条记录本身就是「方案不是一次做对的」的证明</b>。
+</p>
+
+<h2>7.2 两次推倒重做的界面</h2>
+
+<table>
+  <tr><th style="width:26%">模块</th><th>第一版</th><th>为什么推翻</th></tr>
+  <tr>
+    <td><b>课表</b></td>
+    <td>选教学楼 → 选教室 → 选星期 → 选节次 → 点查询</td>
+    <td>把"找东西"的活推回给使用者。日常调课时要点五次才能找到一门课。
+        改成「一屏摊开当天全部教室 × 节次」，点格子即出结果</td>
+  </tr>
+  <tr>
+    <td><b>数据看板</b></td>
+    <td>状态分布饼图、教室故障排行、故障时段分布</td>
+    <td>这些是给领导看的统计，运维看了不做决定。整体改成「运行总览」：
+        哪些教室现在不能用、哪节课要受影响、能挪到哪</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <b>这两次重做遵循同一个标准：</b>
+  一个页面如果看完还得再想「那我该干什么」，它就没完成工作。
+</div>
+
+</body>
+</html>
