@@ -3950,18 +3950,44 @@ async function savePeriods() {
 
 /* -------- 单间教室周课表 -------- */
 
+/**
+ * 绑定单间教室课表弹窗的关闭
+ *
+ * 必须做成可重复调用（幂等）：
+ * 这个绑定原先只在进入「课表」页时执行一次。
+ * 如果用户是从运行总览直接点「课中」打开的，那段初始化根本没跑过，
+ * 叉号就是死的 —— 表现为"偶尔点叉号退不出去"
+ * （进过课表页就正常，没进过就不行）。
+ * 现在改成每次打开前都确保绑定好。
+ */
 function initRoomModal() {
   const modal = $('#sched-room-modal');
   if (!modal) return;
 
-  $('#sched-room-close').addEventListener('click', () =>
-    modal.classList.add('hidden'));
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.add('hidden');
-  });
+  const close = $('#sched-room-close');
+
+  if (!modal.dataset.inited) {
+    modal.dataset.inited = '1';
+
+    if (close) {
+      close.addEventListener('click', () => modal.classList.add('hidden'));
+    }
+    // 点遮罩空白处也能关
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+    // ESC 也能关 —— 弹窗开着时最直觉的退路
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+        modal.classList.add('hidden');
+      }
+    });
+  }
 }
 
 async function openRoomSchedule(building, room) {
+  initRoomModal();
+
   const modal = $('#sched-room-modal');
   const body = $('#sched-room-body');
 
