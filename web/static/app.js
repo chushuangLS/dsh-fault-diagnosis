@@ -1287,16 +1287,30 @@ function initChart(el, existing) {
 
 async function loadStats() {
   const emptyEl = $('#stats-empty');
+  const btn = $('#ov-refresh');
+
+  // 刷新时按钮转圈、禁用 —— 否则点下去没有任何反应，
+  // 用户会以为"刷新是假的"（实际上它之前连事件都没绑）
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('spinning');
+  }
 
   let d;
   try {
-    const res = await fetch('/api/overview');
+    const res = await fetch('/api/overview', { cache: 'no-store' });
     d = await res.json();
     if (d.error) throw new Error(d.error);
   } catch (err) {
     emptyEl.classList.remove('hidden');
     emptyEl.textContent = '读取失败：' + err.message;
+    if (btn) { btn.disabled = false; btn.classList.remove('spinning'); }
     return;
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.remove('spinning');
   }
 
   if (!d.rooms || !d.rooms.length) {
@@ -1324,6 +1338,7 @@ async function loadStats() {
   renderOverviewTrend(d.trend || {});
 
   bindOverviewJumps();
+  bindOverviewRefresh();
 
   // 反复故障单独取，逻辑在 loadRepeatedFaults 里
   loadRepeatedFaults();
@@ -1653,6 +1668,20 @@ function renderOverviewTrend(t) {
       },
     ],
   }, true);
+}
+
+/**
+ * 刷新按钮
+ *
+ * 这个按钮以前是纯装饰 —— HTML 里有，但从没绑过事件，
+ * 点下去毫无反应。在台账里把故障标成已解决之后回到总览点刷新，
+ * 数据当然不会变，看起来就像"假刷新"。
+ */
+function bindOverviewRefresh() {
+  const btn = $('#ov-refresh');
+  if (!btn || btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', () => loadStats());
 }
 
 /** KPI 与图表卡片的点击跳转 */

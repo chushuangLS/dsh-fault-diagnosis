@@ -3681,3 +3681,11 @@ select option:hover {
   flex: 1;
   min-width: 200px;
 }
+/* 刷新按钮转圈（点了有反馈，否则会被当成假刷新） */
+.btn-ghost.spinning .icon {
+  animation: ovSpin 0.8s linear infinite;
+}
+@keyframes ovSpin {
+  to { transform: rotate(360deg); }
+}
+.btn-ghost.spinning { opacity: .6; cursor: default; }
