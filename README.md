@@ -51,6 +51,7 @@ pip install -r requirements.txt
 ### 3. 配置 API Key
 
 程序从环境变量读取 Key，**不写入代码**。
+需要配哪几项、每项什么含义，见根目录的 **`.env.example`**（环境变量模板）。
 
 **Windows（PowerShell，永久生效）：**
 
