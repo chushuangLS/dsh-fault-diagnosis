@@ -61,6 +61,15 @@ _TEACHER_PC_WORDS = ['教师机', '教师电脑', '教师用机', '教师端',
 # 否则"我这台网口坏了"也会被算成整间不能用。
 _NETWORK_WORDS = ['交换机', '路由器', '光猫', '上联', '教室网络', '整间断网']
 
+# 教学设备关键词
+#
+# 投影、幕布、音响、中控都是上课要用的。
+# 坏了虽然电脑还能开机，但老师没法演示、放不了课件 ——
+# 这节课的效果直接打折，也该提前知道，好决定是换设备还是换教室。
+#
+# 空调故意不在这里：坏了课照样上，只是难受，不该报成「影响上课」。
+_TEACHING_DEVICE_WORDS = ['投影', '幕布', '音响', '麦克风', '话筒', '中控']
+
 
 def _text(record):
     return ((record.get('故障现象') or '') + ' '
@@ -89,6 +98,27 @@ def is_teacher_pc_fault(record):
     """这条故障是不是出在教师机上"""
     t = _text(record)
     return any(w in t for w in _TEACHER_PC_WORDS)
+
+
+def is_teaching_device_fault(record):
+    """
+    这条故障是不是出在教学设备上（投影 / 幕布 / 音响 / 中控）
+
+    两个约束：
+      · 只认「故障对象 = 教室设施」的 —— 否则一条「投影连的电脑黑屏」
+        这样的电脑故障也会被算成教学设备坏了
+      · 只按「故障现象」匹配，不看诊断结论 ——
+        结论里有鉴别诊断（"排除投影问题"），拿它匹配会误判。
+        这和故障分类器踩过的是同一个坑
+    """
+    try:
+        if not repair_log.is_facility(record):
+            return False
+    except Exception:
+        return False
+
+    text = record.get('故障现象') or ''
+    return any(w in text for w in _TEACHING_DEVICE_WORDS)
 
 
 def _unresolved_by_room():
@@ -141,6 +171,10 @@ def room_impact(records, total, students=None, has_class=False):
 
     if any(is_teacher_pc_fault(r) for r in records):
         reasons.append('教师机故障')
+
+    # 教学设备坏了：电脑不缺也上不好课，要看是换设备还是换教室
+    if any(is_teaching_device_fault(r) for r in records):
+        reasons.append('教学设备故障')
 
     # 只有真的在上的课才比人数 —— 没课时"上课人数"没有意义
     if has_class and students:
