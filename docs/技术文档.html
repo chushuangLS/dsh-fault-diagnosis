@@ -103,7 +103,7 @@ h1:first-of-type { page-break-before: avoid; }
 h2 {
   font-size: 13pt;
   color: #1e40af;
-  margin: 15px 0 8px;
+  margin: 13px 0 7px;
   page-break-after: avoid;
 }
 
@@ -114,7 +114,7 @@ h3 {
   page-break-after: avoid;
 }
 
-p { margin-bottom: 6px; }
+p { margin-bottom: 5px; }
 
 /* ---------- 列表 ---------- */
 ul, ol { margin: 8px 0 12px 22px; }
@@ -200,7 +200,7 @@ tr:nth-child(even) td { background: #f8fafc; }
   padding-bottom: 8px;
   margin-bottom: 18px;
 }
-.toc ol { list-style: none; margin-left: 0; }
+.toc ol { list-style: none; margin-left: 0; columns: 2; column-gap: 26px; }
 .toc li {
   padding: 7px 0;
   border-bottom: 1px dotted #cbd5e0;
@@ -245,7 +245,7 @@ tr:nth-child(even) td { background: #f8fafc; }
     <tr><td>作品名称</td><td>机房故障智能诊断助手</td></tr>
     <tr><td>选题方向</td><td>场景化轻量 RAG 知识库</td></tr>
     <tr><td>技术栈</td><td>Python · Flask · DeepSeek API · 原生前端</td></tr>
-    <tr><td>当前版本</td><td>v0.15.0</td></tr>
+    <tr><td>当前版本</td><td>v1.0.0</td></tr>
     <tr><td>代码仓库</td><td>github.com/liyishuo1/dsh-fault-diagnosis</td></tr>
     <tr><td>作者</td><td>李一硕</td></tr>
   </table>
@@ -259,124 +259,46 @@ tr:nth-child(even) td { background: #f8fafc; }
 <div class="toc">
   <h2>目 录</h2>
   <ol>
-    <li><span>一、项目概述</span><span>03</span></li>
-    <li class="l2"><span>1.1 真实需求来源</span><span></span></li>
-    <li class="l2"><span>1.2 要解决的问题</span><span></span></li>
-    <li class="l2"><span>1.3 作品定位</span><span></span></li>
-
-    <li><span>二、系统架构</span><span>04</span></li>
-    <li class="l2"><span>2.1 整体结构</span><span></span></li>
-    <li class="l2"><span>2.2 模块职责</span><span></span></li>
-    <li class="l2"><span>2.3 数据存储设计</span><span></span></li>
-
-    <li><span>三、核心技术实现</span><span>07</span></li>
-    <li class="l2"><span>3.1 对话式逐层排查</span><span></span></li>
-    <li class="l2"><span>3.2 轻量 RAG 知识库</span><span></span></li>
-    <li class="l2"><span>3.3 知识库自动沉淀</span><span></span></li>
-    <li class="l2"><span>3.4 设备状态四态模型</span><span></span></li>
-    <li class="l2"><span>3.5 并发写入保护</span><span></span></li>
-    <li class="l2"><span>3.6 课表：从教务表格到「哪间空着」</span><span></span></li>
-    <li class="l2"><span>3.7 运行总览：判定「能不能上课」</span><span></span></li>
-    <li class="l2"><span>3.8 桌面化：把同一个应用装进窗口</span><span></span></li>
-    <li class="l2"><span>3.9 界面性能：两个被「看着还行」掩盖的问题</span><span></span></li>
-
-    <li><span>四、意图控制策略</span><span>13</span></li>
-    <li class="l2"><span>4.1 系统提示词设计</span><span></span></li>
-    <li class="l2"><span>4.2 如何约束 AI 的输出</span><span></span></li>
-    <li class="l2"><span>4.3 提示词的迭代过程</span><span></span></li>
-
-    <li><span>五、工程质量保障</span><span>17</span></li>
-    <li class="l2"><span>5.1 自动化测试</span><span></span></li>
-    <li class="l2"><span>5.2 持续集成</span><span></span></li>
-    <li class="l2"><span>5.3 典型缺陷与修复</span><span></span></li>
-
-    <li><span>六、可复现性论证</span><span>22</span></li>
-    <li class="l2"><span>6.1 环境与依赖</span><span></span></li>
-    <li class="l2"><span>6.2 复现步骤</span><span></span></li>
-    <li class="l2"><span>6.3 演进链路</span><span></span></li>
-
-    <li><span>七、AI 协作过程</span><span>26</span></li>
-    <li class="l2"><span>7.1 协作方式</span><span></span></li>
-    <li class="l2"><span>7.2 典型协作案例</span><span></span></li>
+    <li><span>一、系统架构</span><span></span></li>
+    <li class="l2"><span>1.1 整体结构</span><span></span></li>
+    <li class="l2"><span>1.2 模块职责</span><span></span></li>
+    <li class="l2"><span>1.3 数据存储设计</span><span></span></li>
+    <li><span>二、核心技术实现</span><span></span></li>
+    <li class="l2"><span>2.1 对话式逐层排查</span><span></span></li>
+    <li class="l2"><span>2.2 轻量 RAG 知识库</span><span></span></li>
+    <li class="l2"><span>2.3 知识库自动沉淀</span><span></span></li>
+    <li class="l2"><span>2.4 设备状态四态模型</span><span></span></li>
+    <li class="l2"><span>2.5 并发写入保护</span><span></span></li>
+    <li class="l2"><span>2.6 课表：从教务表格到「哪间空着」</span><span></span></li>
+    <li class="l2"><span>2.7 运行总览：判定「能不能上课」</span><span></span></li>
+    <li class="l2"><span>2.8 桌面化：把同一个应用装进窗口</span><span></span></li>
+    <li class="l2"><span>2.9 界面性能：两个被「看着还行」掩盖的问题</span><span></span></li>
+    <li><span>三、意图控制策略</span><span></span></li>
+    <li class="l2"><span>3.1 系统提示词设计</span><span></span></li>
+    <li><span>四、工程质量保障</span><span></span></li>
+    <li class="l2"><span>4.1 自动化测试</span><span></span></li>
+    <li class="l2"><span>4.2 持续集成</span><span></span></li>
+    <li class="l2"><span>4.3 典型缺陷</span><span></span></li>
+    <li><span>五、可复现性论证</span><span></span></li>
+    <li class="l2"><span>5.1 环境与依赖</span><span></span></li>
+    <li class="l2"><span>5.2 复现步骤</span><span></span></li>
+    <li class="l2"><span>5.3 演进链路</span><span></span></li>
+    <li><span>六、AI 协作过程</span><span></span></li>
   </ol>
 </div>
 
 <!-- ==================== 一、项目概述 ==================== -->
-<h1>一、项目概述</h1>
-
-<h2>1.1 真实需求来源</h2>
-
-<p>
-本作品的需求直接来自作者本人的日常运维工作，而非虚构场景：
-</p>
-
-<ul>
-  <li>负责 <b>23 间机房教室、约 1840 台计算机设备</b> 的日常维护</li>
-  <li>管理一支 <b>50 人的学生运维团队</b></li>
-  <li>每周值班 3–4 次，组织每周两次机房大扫除</li>
-</ul>
-
-<h2>1.2 要解决的问题</h2>
-
-<p>在高频运维工作中，暴露出三个具体痛点：</p>
-
-<table>
-  <tr>
-    <th style="width:26%">痛点</th>
-    <th>具体表现</th>
-  </tr>
-  <tr>
-    <td><b>高频故障重复出现</b></td>
-    <td>无法开机、网络中断、外设失灵等问题反复发生，每次都从头排查</td>
-  </tr>
-  <tr>
-    <td><b>排查依赖个人经验</b></td>
-    <td>新人上手慢，同一个故障不同人处理方式不一致，处理标准不统一</td>
-  </tr>
-  <tr>
-    <td><b>经验无法沉淀</b></td>
-    <td>老管理员毕业后经验随之流失，后来者仍需重新摸索</td>
-  </tr>
-</table>
-
+<!-- ==================== 简介（代替原「项目概述」章） ==================== -->
 <div class="callout">
-  <b>为什么这些痛点值得解决：</b>
-  机房运维的核心矛盾是「故障种类有限但处理经验分散在人脑里」。
-  1840 台设备的故障模式其实高度重复，若能沉淀成可检索的工具，
-  就能把「依赖个人」变成「依赖系统」。
+  <b>这份文档只讲"怎么做"。</b>
+  项目是什么、解决什么问题、有哪些亮点，见同目录的
+  <code>作品介绍文档</code>；设计取舍见 <code>设计取舍.md</code>；
+  逐版迭代与缺陷修复见 <code>迭代日志.md</code>。
 </div>
 
-<h2>1.3 作品定位</h2>
+<h1>一、系统架构</h1>
 
-<p>
-本作品把机房运维经验沉淀成<b>可检索、可复用的诊断工具</b>，降低对个人经验的依赖。
-与常见的「设备管理系统」不同，本作品的切入点是<b>故障排查过程本身</b>：
-</p>
-
-<table>
-  <tr><th style="width:30%">维度</th><th>本作品的做法</th></tr>
-  <tr>
-    <td>输入方式</td>
-    <td>自然语言描述故障，不需要记忆关键词或分类编号</td>
-  </tr>
-  <tr>
-    <td>交互形式</td>
-    <td>对话式逐层追问，一次只问一个问题，模拟老师傅带徒弟的过程</td>
-  </tr>
-  <tr>
-    <td>知识来源</td>
-    <td>本校机房真实案例库 + AI 通用知识，并通过检索增强（RAG）注入</td>
-  </tr>
-  <tr>
-    <td>闭环设计</td>
-    <td>诊断结论自动写入报修台账，形成「排查 → 记录 → 统计 → 报表」闭环</td>
-  </tr>
-</table>
-
-<!-- ==================== 二、系统架构 ==================== -->
-<h1>二、系统架构</h1>
-
-<h2>2.1 整体结构</h2>
+<h2>1.1 整体结构</h2>
 
 <pre><code>┌─────────────────────────────────────────────────────────┐
 │                      浏览器（原生前端）                    │
@@ -406,7 +328,7 @@ tr:nth-child(even) td { background: #f8fafc; }
               │   data/  文件存储     │
               └─────────────────────┘</code></pre>
 
-<h2>2.2 模块职责</h2>
+<h2>1.2 模块职责</h2>
 
 <table>
   <tr>
@@ -462,7 +384,7 @@ tr:nth-child(even) td { background: #f8fafc; }
 这样同一套逻辑既能被 Web 界面调用，也能被命令行 <code>main.py</code> 调用。
 </p>
 
-<h2>2.3 数据存储设计</h2>
+<h2>1.3 数据存储设计</h2>
 
 <p>
 本项目<b>不使用数据库</b>，全部采用文件存储。这是刻意的选择：
@@ -517,10 +439,10 @@ tr:nth-child(even) td { background: #f8fafc; }
   两者分离后，程序只写 <code>_auto</code> 文件，永不覆盖手工知识库。
 </div>
 
-<!-- ==================== 三、核心技术实现 ==================== -->
-<h1>三、核心技术实现</h1>
+<!-- ==================== 二、核心技术实现 ==================== -->
+<h1>二、核心技术实现</h1>
 
-<h2>3.1 对话式逐层排查</h2>
+<h2>2.1 对话式逐层排查</h2>
 
 <p>
 传统做法是用户输入故障后，一次性输出「5 个可能原因 + 5 个大步骤」，
@@ -573,7 +495,7 @@ tr:nth-child(even) td { background: #f8fafc; }
         self.history.append({"role": "assistant", "content": reply})
         return clean_markers(reply), self.finished, self.need_repair</code></pre>
 
-<h2>3.2 轻量 RAG 知识库</h2>
+<h2>2.2 轻量 RAG 知识库</h2>
 
 <p>
 <b>早期做法：</b>把 <code>fault_cases.json</code> 全部案例塞进 system 消息。
@@ -639,7 +561,7 @@ for _std, _variants in SYNONYMS.items():
 
 <p>修复：长短句统一产出 3-gram，匹配时放宽为互为子串即算命中。</p>
 
-<h2>3.3 知识库自动沉淀</h2>
+<h2>2.3 知识库自动沉淀</h2>
 
 <p>
 诊断结束后，若结论为「自己修」（已报修的不沉淀，因为结论尚未验证），
@@ -703,279 +625,85 @@ def _save_case_locked(symptom, conclusion, excluded, classroom):
     (['音响', '音箱', '耳机', '话筒', '麦克风', '没声音', '杂音'], '音频故障'),
 ]</code></pre>
 
-<h2>3.4 设备状态四态模型</h2>
+<h2>2.4 设备状态四态模型</h2>
 
 <p>
-设备的可用状态设计为四种（面向运维）与两种（面向领导报表）两套口径：
+设备不是「好」和「坏」两态。实际运维里有第三种：<b>可以自己修</b>
+（驱动问题、线松了），不需要报修。所以模型是四态：
 </p>
+
+<pre><code>未报修  →  可自修  →  已报修  →  已解决
+                ↑                    |
+                └────── 重置 ────────┘</code></pre>
+
+<p>
+这个模型决定了台账排序、统计口径和看板上的「待处理」数量 ——
+「可自修」不算待处理，但也不能从列表里消失。
+</p>
+
+<h2>2.5 并发写入保护</h2>
+
+<p>
+Flask 默认多线程，两个请求可能同时「读-改-写」同一个文件，
+后写的会覆盖先写的，直接丢数据。最终是<b>两层锁</b>：
+</p>
+
+<pre><code>第一层  进程内 threading.RLock      —— 同进程多线程
+第二层  跨进程文件锁（fcntl/msvcrt） —— 多进程（Web + CLI 同时跑）</code></pre>
+
+<h3>三个必须守住的点</h3>
 
 <table>
-  <tr>
-    <th style="width:20%">系统状态</th>
-    <th style="width:30%">含义</th>
-    <th>报表归类</th>
-  </tr>
-  <tr>
-    <td><span style="color:#dc2626">未报修</span></td>
-    <td>硬件故障，需要报修</td>
-    <td>损坏</td>
-  </tr>
-  <tr>
-    <td><span style="color:#ca8a04">可自修</span></td>
-    <td>非硬件问题，可自行修复</td>
-    <td>损坏</td>
-  </tr>
-  <tr>
-    <td><span style="color:#ea580c">已报修</span></td>
-    <td>已联系维修，等待处理</td>
-    <td>损坏</td>
-  </tr>
-  <tr>
-    <td><span style="color:#16a34a">已解决</span></td>
-    <td>已完结</td>
-    <td>正常</td>
-  </tr>
+  <tr><th style="width:28%">要点</th><th>不守会怎样</th></tr>
+  <tr><td><b>先加锁再读取</b></td>
+      <td>先读再加锁，读到的是过期内容，锁白加了</td></tr>
+  <tr><td><b>「检查-写入」整体持锁</b></td>
+      <td><code>if not exists(F): open(F,'w')</code> 之间没锁，
+          而 <code>'w'</code> 是截断写 —— 后到的把先写好的清空</td></tr>
+  <tr><td><b>锁必须可重入</b></td>
+      <td>内层调用重复加系统锁会死锁</td></tr>
 </table>
 
-<div class="callout">
-  <b>「损坏」的含义要有意说清：</b>
-  它指的是<b>设备能不能用</b>，与报没报修无关。
-  因此 损坏 = 未报修 + 可自修 + 已报修。<br><br>
-  界面上最初把这一项标成了「需报修」，但已报修的那几台并不需要<b>再</b>报修，
-  名称与实际含义不符，后来统一改为「损坏」。
-  这个概念区分很重要：<b>「坏没坏」是设备属性，「报没报修」是处理进度</b>，
-  两者是不同的维度，混在一个标签里就会说不清。
-</div>
-
-<div class="callout">
-  <b>为什么报表要合并成两种：</b>
-  这份报表是给领导看的，领导不关心修没修、谁去修，
-  只关心「现在有多少台能用」。因此报表口径为：
-  <b>正常 + 损坏 = 设备总数</b>，账目能直接对上。
-</div>
-
-<h3>「不能用台数」的统计口径</h3>
-
 <p>
-一条报修记录可以代表多台设备（如「第三排 5 台都开不了机」），
-因此统计台数时按<b>数量字段累加</b>，而不是数记录条数。
+第二条是后来才暴露的：Windows 的加锁与线程调度更慢，恰好错开竞态窗口，
+本地一直是绿的；CI 换到 Ubuntu 才炸出来。实测 60 轮并发首次创建，
+<b>47 轮丢数据</b>。修法是全程持锁 + 创建改用 <code>'x'</code> 模式。
 </p>
 
-<pre><code>def count_machines(records, statuses=None):
-    """统计一批记录代表的机器台数（累加数量字段）"""
-    total = 0
-    for r in records:
-        if statuses is not None and r.get('状态') not in statuses:
-            continue
-        total += get_quantity(r)
-    return total</code></pre>
-
-<h3>故障对象：电脑 / 教室设施</h3>
+<h2>2.6 课表：从教务表格到「哪间空着」</h2>
 
 <p>
-上面那个函数只解决了「一条记录代表几台」。但在真实运维里还有另一种情况：
-<b>坏的不是电脑</b>。
+设计理由（为什么没有查询按钮、调课怎么排序）见 <code>设计取舍.md</code>。
+这里只说解析和判定上的技术点。
 </p>
 
-<p>
-总闸跳闸、交换机瘫痪、投影坏掉、教室断网 —— 这些是<b>教室级设施</b>。
-它们会让整间教室不能用，可电脑本身一台都没坏。
-</p>
-
-<p>
-如果没有这个区分，一条「总闸跳闸」只能记成「损坏 80 台电脑」：
-既歪曲了设备状态，也让「损坏台数」这个指标失去意义。
-</p>
-
-<table>
-  <tr>
-    <th style="width:22%">故障对象</th>
-    <th style="width:38%">含义</th>
-    <th>统计口径</th>
-  </tr>
-  <tr>
-    <td><b>电脑</b></td>
-    <td>个别机器坏了</td>
-    <td>数量字段累加 → 计入损坏台数</td>
-  </tr>
-  <tr>
-    <td><b>教室设施</b></td>
-    <td>总闸、交换机、投影、空调、教室网络坏了</td>
-    <td>不计入台数，单独标记「设施故障」</td>
-  </tr>
-</table>
-
-<div class="callout">
-  <b>只在两类之间划分，不再细分。</b>
-  分太细会让登记表单变复杂，而运维人员真正要回答的只有两个问题：
-  「坏了几台电脑」和「教室能不能用」。<br><br>
-  界面上这两个数字同时呈现：
-  教室 106 会显示「总数 76 / 正常 76 / 损坏 0」外加一个「设施故障 1」标记 ——
-  电脑都好的，但教室今天上不了课。
-</div>
-
-<h2>3.5 并发写入保护</h2>
-
-<p>
-Flask 默认多线程，多个请求可能同时「读-改-写」同一个数据文件。
-没有锁时，后写的会覆盖先写的，导致<b>数据丢失</b>。
-</p>
-
-<h3>两层锁的设计</h3>
-
-<p>
-最终的实现用了两层锁，这是被两个真实缺陷逼出来的结构：
-</p>
-
-<pre><code>@contextlib.contextmanager
-def file_lock(target_path):
-    """第一层：进程内可重入锁 第二层：跨进程文件锁"""
-    key = os.path.abspath(target_path)
-    with _get_local_lock(target_path):
-        if key in _held_paths():      # 内层重入：不碰系统锁
-            yield
-            return
-
-        fh = open(target_path + '.lock', 'w')
-        try:
-            import fcntl                  # Linux / macOS
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except ImportError:
-            import msvcrt                 # Windows
-            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
-
-        _held_paths().add(key)
-        yield
-        # ……释放锁并清理</code></pre>
-
-<h3>关键点一：必须加锁之后再读取</h3>
-
-<pre><code># 正确做法
-with file_lock(AUTO_FILE):
-    data = _load_auto()          # 先加锁，再读取
-    data['cases'].append(case)
-    _write_auto(data)</code></pre>
-
-<p>
-如果先读再加锁，读到的仍是过期内容，锁就白加了。
-</p>
-
-<h3>关键点二：「检查-写入」必须整体持锁</h3>
-
-<p>
-这是开发后期才暴露的一个缺陷。原来「文件不存在则创建」是这么写的：
-</p>
-
-<pre><code>def init_file():
-    if not os.path.exists(RECORD_FILE):          # ← 检查
-        with open(RECORD_FILE, 'w', ...) as f:   # ← 'w' 是截断写
-            csv.writer(f).writerow(FIELDS)</code></pre>
-
-<p>
-多线程同时首次调用时，都会通过 <code>exists()</code> 检查——
-因为此刻文件确实还不存在。随后<b>后到的那个以 <code>'w'</code> 模式打开，
-把先到者刚写入的内容全部清空</b>。
-</p>
-
-<div class="callout warn">
-  <b>这个缺陷只在 Linux 上暴露，而且时好时坏。</b>
-  Windows 下 <code>msvcrt</code> 加锁与线程调度更慢，
-  恰好错开了竞态窗口，因此本地测试一直通过，
-  直到 CI 在 Ubuntu 上跑才暴露出来。<br><br>
-  实测复现：60 轮并发首次创建，<b>47 轮丢数据</b>。
-  修复后同样的压测 0 轮失败。
-</div>
-
-<p>
-修复方式有两处：一是让 <code>init_file</code> 全程持锁，
-创建时改用 <code>'x'</code> 模式做二次保护（并发进入者会拿到
-<code>FileExistsError</code> 而不是把文件截断）；
-二是让 <code>file_lock</code> 支持重入。
-</p>
-
-<h3>关键点三：锁必须可重入</h3>
-
-<p>
-第二条修复有一个前提——如果锁不可重入，给
-<code>init_file</code> 加锁会立刻造成死锁：
-</p>
-
-<pre><code>update_status()
-  └─ 持有锁
-      └─ load_records()
-          └─ init_file()
-              └─ 又要加锁   ← 锁不可重入则死锁</code></pre>
-
-<p>
-业务代码里这种「持锁后调用另一个也会加锁的函数」的写法是合理且常见的，
-因此锁在这一层做成可重入：同一线程重复进入时只累加计数，
-<b>只有最外层才真正去拿系统锁</b>。
-</p>
-
-<p>
-不能直接依赖 <code>flock</code> 的重入行为——同一进程内对同一文件
-用两个不同 fd 加锁，各平台表现并不一致。所以重入由 Python 层
-自己的 <code>RLock</code> 负责，系统锁只在最外层拿一次。
-</p>
-
-<div class="callout good">
-  <b>附带收益：</b>修复后测试耗时从约 32 秒降到约 6 秒。
-  说明此前线程在锁上存在大量无谓等待。
-</div>
-
-<p>
-验证方式：50 轮 × 12 线程高并发压测，0 轮失败；
-另有两项防死锁测试（4 层嵌套加锁、锁内调用 <code>load_records</code>），
-均已固化进 <code>tests/test_concurrency.py</code>。
-</p>
-
-<h2>3.6 课表：从教务表格到「哪间空着」</h2>
-
-<p>
-教室坏了，最急的不是「这台怎么修」，而是<b>这节课去哪上</b>。
-要回答这个问题，系统必须先知道：现在第几周、第几节，哪间教室有课。
-</p>
-
-<h3>解析教务导出的课表</h3>
-
-<p>
-学校导出的是一间教室一个 <code>.xls</code> 文件，格式固定：
-</p>
-
-<pre><code>第 0 行   2026-2027学年第1学期 | 第一实验楼机房C104场地课表 | 座位数：80
-第 1 行   节次 | (空) | 星期一 … 星期日
-第 2-13 行  上午(一~四) / 下午(五~八) / 晚上(九~十二)
-第 14 行  注--内容顺序为：课程&lt;&gt;周次&lt;&gt;教师&lt;&gt;教学班&lt;&gt;选课人数
-          本学期2026-09-07正式上课至2027-01-24结束，共20周.</code></pre>
-
-<p>每个格子里是：</p>
+<h3>格子的解析必须用锚点</h3>
 
 <pre><code>专业软件CAD/SU/(5-5节)1-8周/石嘉伟/专业软件CAD/SU-0002/选课人数：26</code></pre>
 
 <p>
 <b>课程名和教学班名里都可能带斜杠</b>，按 <code>/</code> 硬切会碎成 7 段。
-所以解析时用「<code>(N-N节)X-Y周</code>」这一段当锚点，前后分别处理。
+所以用「<code>(N-N节)X-Y周</code>」这一段当锚点，前后分别处理。
 一个格子里还可能有两门课（不同周次交替），用换行分隔，都要提取。
 </p>
 
 <p>
-文件格式<b>按文件头判断，不看后缀</b>——学校系统的后缀经常不准：
+文件格式<b>按文件头判断，不看后缀</b> —— 学校系统的后缀经常不准：
 OLE2 走 <code>xlrd</code>，ZIP 走 <code>openpyxl</code>。
 </p>
 
-<h3>作息时间：课表里没有的东西</h3>
+<h3>作息时间必须单独存</h3>
 
 <p>
-课表只有「第几节」，<b>没有几点到几点</b>。而「现在有没有课」需要真实时间。
-所以系统里存了一份全校统一的作息表，并提供一个快速生成入口：
-填三个段的起始时间 + 单节时长 + 课间，就能生成 12 节，之后可逐节微调。
+课表里只有「第几节」，<b>没有几点到几点</b>，而「现在有没有课」需要真实时间。
+所以单独存一份作息表，并提供按锚点生成 12 节的入口（三个段起点 + 单节时长 + 课间）。
 </p>
 
-<h3>空余查询必须区分三类教室</h3>
+<h3>空余查询必须区分三类</h3>
 
 <table>
   <tr><th style="width:22%">类别</th><th>含义</th></tr>
-  <tr><td><b>空闲</b></td><td>已导入课表，且这一节确实没有排课</td></tr>
+  <tr><td><b>空闲</b></td><td>已导入课表，且这一节确实没排课</td></tr>
   <tr><td><b>占用中</b></td><td>这一节有课，附课程 / 教师 / 人数</td></tr>
   <tr><td><b>未导入课表</b></td><td>不知道有没有课</td></tr>
 </table>
@@ -989,161 +717,90 @@ OLE2 走 <code>xlrd</code>，ZIP 走 <code>openpyxl</code>。
 <h3>教师姓名在出口处脱敏</h3>
 
 <p>
-作品中不得出现真实教师姓名。脱敏放在<b>后端返回时</b>做，而不是前端——
-前端做的话，真名仍然出现在接口返回的 JSON 里，打开开发者工具就能看到。
-复姓（欧阳、司马等）按两个字处理，避免变成「欧老师」。
+脱敏放在<b>后端返回时</b>做，不是前端 —— 前端做的话真名仍在接口 JSON 里，
+打开开发者工具就能看到。复姓（欧阳、司马）按两个字处理，避免变成「欧老师」。
 </p>
 
-<h2>3.7 运行总览：判定「能不能上课」</h2>
+<h2>2.7 运行总览：判定「能不能上课」</h2>
 
 <p>
-看板最容易做成「记了多少条」的统计表，但运维真正要回答的是一个问题：
-</p>
-
-<p><b>这间教室现在还能不能上课？</b></p>
-
-<p>
-「坏了几台」不足以回答它 —— 78 人的课坏 2 台照样能上；
-教师机坏了却一台不缺也上不了。所以判定分三条，命中任一即算受影响：
+「坏了几台」回答不了运维每天要回答的问题，所以判定改成五条，命中任一即算受影响：
 </p>
 
 <table>
-  <tr><th style="width:24%">条件</th><th>判定依据</th></tr>
-  <tr><td><b>整间跳闸</b></td><td>有未解决的教室设施故障，且现象含 总闸 / 跳闸 / 停电 / 短路 / 漏电</td></tr>
-  <tr><td><b>整间断网</b></td><td>故障对象是教室设施，且提到 交换机 / 上联 / 路由器（机房课基本都要联网）</td></tr>
-  <tr><td><b>教师机故障</b></td><td>未解决故障出现在教师机 / 讲台</td></tr>
-  <tr><td><b>教学设备故障</b></td><td>故障对象是教室设施，且现象含 投影 / 幕布 / 音响 / 中控</td></tr>
+  <tr><th style="width:26%">条件</th><th>判定依据</th></tr>
+  <tr><td><b>整间跳闸</b></td><td>未解决的设施故障，现象含 总闸 / 跳闸 / 停电 / 短路 / 漏电</td></tr>
+  <tr><td><b>整间断网</b></td><td>故障对象是教室设施，且提到 交换机 / 上联 / 路由器</td></tr>
+  <tr><td><b>教师机故障</b></td><td>故障出现在教师机 / 讲台</td></tr>
+  <tr><td><b>教学设备故障</b></td><td>故障对象是教室设施，且提到 投影 / 幕布 / 音响 / 中控</td></tr>
   <tr><td><b>座位不够</b></td><td>可用台数 &lt; 该节次选课人数（仅在这一节有课时判断）</td></tr>
 </table>
 
-<div class="callout">
-  <b>「整间断网」这条是被真实使用逼出来的。</b>
-  原先只判跳闸和教师机，于是「409 教室交换机坏了，明天 8 点有 74 人的课」
-  在系统里显示为「不影响」。可机房课离了网络就上不了。
-</div>
-
-<h3>预警要往后看，不能只扫今天</h3>
-
 <p>
-最早的实现只遍历「今天」的课。结果周日晚上打开系统时，今天没课 →
-整块空白，而明天一早八点的课此刻就受着故障影响，完全看不到。
-现在的范围是<b>今天 + 明天</b>，每条预警标清「今天 周六」「明天 周一」，
-并且每一天的周次单独计算（周日跨周时会变）。
+<b>边界是刻意划清的：</b>投影、幕布、音响算（电脑不缺也没法演示），
+空调、灯管不算（课照样上，只是难受）。
 </p>
 
-<h3>反复故障：同一处反复坏，指向的是根因</h3>
+<h3>预警必须跨天、必须合并</h3>
 
 <p>
-同一间教室、同一类故障累计 ≥3 次时单独列出。
-反复换内存条可能是插槽氧化，反复报电源故障可能是教室供电不稳 ——
-这类信息在逐条记录里看不出来，必须聚合。
+只扫「今天」时，周日晚上打开系统是整块空白，而明天早八的课此刻就受影响。
+范围定为<b>今天 + 明天</b>，每天的周次单独算。
 </p>
 
 <p>
-分类口径上有一个坑：一开始把「故障现象 + 诊断结论」一起做关键词匹配，
-结果结论里的鉴别诊断（「换线后显示器正常，问题在主机端」）
-把「电脑打不开」判成了显示故障，18 条记录错了 3 条。
-改成<b>只按故障现象判</b>——现象是运维人员自己的简短描述，稳定且没有干扰。
+另外按「教室 + 日期」合并：否则一间教室坏了，第 1–12 节每节一条预警，
+14 条里 5 条是同一间，真正要看的信息被自己的重复淹掉。
 </p>
 
-<h2>3.8 桌面化：把同一个应用装进窗口</h2>
+<h2>2.8 桌面化：把同一个应用装进窗口</h2>
 
 <p>
-Web 形态每次要先起服务、再开浏览器，还留一个控制台窗口。
-演示和日常值班都别扭。目标只是<b>换一种启动方式</b>，不是重写：
-用 pywebview 起一个内嵌 WebView2 的原生窗口，页面代码一行没改。
+Web 形态每次要先起服务再开浏览器，还留一个控制台窗口。
+目标只是<b>换一种启动方式</b>：用 pywebview 起内嵌 WebView2 的原生窗口，
+页面代码一行没改。
 </p>
 
-<p>但"打个包"这一步，暴露出三个原本不存在的问题。</p>
-
-<h3>问题一：数据不能打进 exe</h3>
-
-<p>
-所有模块原先都写 <code>os.path.join(dirname(__file__), '..', 'data')</code>。
-打包后 <code>__file__</code> 指向<b>临时解包目录</b>，数据写进去，程序一退就清空。
-</p>
-
-<p>
-所以把"代码在哪"和"数据写哪"拆开：
-</p>
+<p>"打个包"这一步暴露了三个原本不存在的问题：</p>
 
 <table>
-  <tr><th style="width:20%">函数</th><th>含义</th></tr>
-  <tr><td><code>res_dir()</code></td><td>只读资源（模板、静态文件）。打包后在
-      <code>sys._MEIPASS</code>，程序退出自动清理，正好</td></tr>
-  <tr><td><code>data_dir()</code></td><td>可写数据。优先级：环境变量
-      <code>DSH_DATA_DIR</code> → exe 同目录的 <code>data/</code> →
-      <code>%APPDATA%</code>（装在 Program Files 等只读位置时兜底）</td></tr>
+  <tr><th style="width:26%">问题</th><th>处理</th></tr>
+  <tr><td><b>数据不能打进 exe</b></td>
+      <td>打包后 <code>__file__</code> 指向临时解包目录，数据写进去程序一关就清空。
+          拆成「只读资源」（<code>res_dir()</code>，跟着程序）与
+          「可写数据」（<code>data_dir()</code>，exe 旁边的 <code>data/</code>）</td></tr>
+  <tr><td><b>单文件 exe 起不来</b></td>
+      <td><code>Could not create temporary directory</code> ——
+          单文件每次运行要解压自己，被安全软件拦下。改用文件夹版</td></tr>
+  <tr><td><b>pywebview 偶发失败</b></td>
+      <td><code>Failed to resolve Python.Runtime.Loader.Initialize</code>。
+          同一份程序换目录就好，原因未查清。加兜底：失败则用 Edge 的
+          <code>--app</code> 模式开窗口（须给独立 <code>--user-data-dir</code>，
+          否则新进程会交接给已有实例后立刻退出）</td></tr>
 </table>
 
-<p>
-首次运行时把知识库、决策树、空台账骨架铺到数据目录，
-<b>只补缺失的文件</b>，绝不覆盖已有数据。
-</p>
-
-<h3>问题二：单文件 exe 根本起不来</h3>
-
-<pre><code>[PYI-2580:ERROR] Could not create temporary directory!</code></pre>
+<h3>API Key 为什么要三处来源</h3>
 
 <p>
-单文件形态每次运行都要把自己解压到临时目录再启动，
-这一步被杀毒软件拦了——换一个临时目录也一样。
-所以改成<b>文件夹版</b>（onedir）：没有解包步骤，启动更快，误报也更少。
-代价是交付时要整个文件夹一起拷走。
-</p>
-
-<h3>问题三：窗口偶尔起不来，而且说不清为什么</h3>
-
-<pre><code>RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize
-             from ...\pythonnet\runtime\Python.Runtime.dll</code></pre>
-
-<p>
-pywebview 在 Windows 上要经 pythonnet 加载 .NET 组件。
-实测<b>同一份程序在 A 目录能开、B 目录报错</b>；
-排除了中文路径、工作目录、临时目录，原因仍未查清。
+打包给别人用，对方电脑没有环境变量，一诊断就报"未配置"。读取顺序：
+<b>进程环境变量 → <code>data/config.json</code> → Windows 用户环境变量</b>。
 </p>
 
 <p>
-用户看到的现象会是"双击没反应"——比没有功能更糟。
-所以加了一层兜底：pywebview 失败就用 Edge 的 <code>--app</code> 模式
-开一个同样没有地址栏和标签页的窗口。
-兜底里有个坑：Edge 已在运行时，新进程会把窗口交接给已有实例然后立刻退出，
-靠 <code>proc.wait()</code> 判断"窗口何时关闭"就会误判——
-必须给 <code>--user-data-dir</code> 一个独立目录强制新实例。
-</p>
-
-<h3>API Key：为什么需要三处来源</h3>
-
-<p>
-打包给别人用，对方电脑上没有环境变量，一用诊断就报"未配置"。
-读取顺序最终定为：
-</p>
-
-<table>
-  <tr><th style="width:34%">来源</th><th>为什么需要它</th></tr>
-  <tr><td>进程环境变量</td><td>服务器部署、临时换 Key 时不落盘</td></tr>
-  <tr><td><code>data/config.json</code></td><td>桌面版首次启动弹窗填进去的</td></tr>
-  <tr><td>Windows 用户环境变量</td><td><b>实测逼出来的</b>：用户设过 Key，
-      但 <code>pythonw</code> 启动的进程里读不到，只能直接读注册表兜底</td></tr>
-</table>
-
-<p>
-另外，"清除 Key"不能只是删掉配置文件里的那一行——
-后面还有注册表兜底会把它找回来，用户点了清除发现还能用，会以为坏了。
-现在清除会写一个显式的 <code>disabled</code> 标记，短路掉所有来源。
+第三条是实测逼出来的：用户设过 Key，但 <code>pythonw</code> 启动的进程读不到，
+只能直接读注册表兜底。另外「清除」必须写一个显式 <code>disabled</code> 标记，
+否则删掉配置文件里的 key 之后，注册表兜底又把它找回来。
 </p>
 
 <h3>安全边界</h3>
 
 <p>
-写 Key、打开目录、导出文件这类接口<b>只接受来自 127.0.0.1 的请求</b>。
-默认的桌面版和 Web 版都只监听回环地址，本来就出不去；
-但万一有人把 host 改成 <code>0.0.0.0</code> 开到局域网，
+写 Key、打开目录、导出文件这类接口<b>只接受 127.0.0.1 的请求</b>。
+默认只监听回环地址，本来就出不去；但万一有人把 host 改成 <code>0.0.0.0</code>，
 没有这道检查，同网段任何人都能改你的 Key。
-不依赖"反正外面连不到"，而是显式判断。
 </p>
 
-<h2>3.9 界面性能：两个被「看着还行」掩盖的问题</h2>
+<h2>2.9 界面性能：两个被「看着还行」掩盖的问题</h2>
 
 <p>
 两个性能问题都不是"代码写得慢"，而是<b>用错了渲染路径</b>。
@@ -1193,10 +850,10 @@ pywebview 在 Windows 上要经 pythonnet 加载 .NET 组件。
   用户的感受就是"掉帧"。<b>优化要看用户看到什么，不是看指标降了多少。</b>
 </div>
 
-<!-- ==================== 四、意图控制策略 ==================== -->
-<h1>四、意图控制策略</h1>
+<!-- ==================== 三、意图控制策略 ==================== -->
+<h1>三、意图控制策略</h1>
 
-<h2>4.1 系统提示词设计</h2>
+<h2>3.1 系统提示词设计</h2>
 
 <p>
 系统提示词是本项目最核心的设计。它的目标不是「让 AI 更聪明」，
@@ -1264,126 +921,22 @@ pywebview 在 Windows 上要经 pythonnet 加载 .NET 组件。
   现在的约束是：<b>总闸只允许推一次，推上去还跳就必须停手等电工</b>。
 </div>
 
-<h2>4.2 如何约束 AI 的输出</h2>
+<h1>四、工程质量保障</h1>
 
-<p>除了提示词，还有三道工程约束：</p>
-
-<table>
-  <tr>
-    <th style="width:24%">手段</th>
-    <th>作用</th>
-  </tr>
-  <tr>
-    <td><code>max_tokens=300</code></td>
-    <td>物理限制回复长度，强制精简。写得长会被直接截断</td>
-  </tr>
-  <tr>
-    <td><code>temperature=0.3</code></td>
-    <td>降低随机性，让排查步骤稳定、专业，不出现发散内容</td>
-  </tr>
-  <tr>
-    <td>结构化标记</td>
-    <td>用 <code>【诊断结束】</code><code>【需要报修】</code><code>【可自修】</code>
-        三个标记，让程序能可靠地解析 AI 意图，而不必猜自然语言</td>
-  </tr>
-</table>
-
-<h3>标记解析与状态映射</h3>
-
-<pre><code>def apply_markers(session, reply):
-    """根据 AI 回复里的标记，更新会话状态"""
-    if REPAIR_MARKER in reply:
-        session.need_repair = True
-    if SELF_FIX_MARKER in reply:
-        session.self_fix = True
-    if DONE_MARKER in reply:
-        session.finished = True
-        session.quantity = parse_quantity(reply)   # 从结论解析数量
-    return reply
-
-
-def parse_quantity(text):
-    """容错解析：支持 "3 台" / "三台" / "十五台" """
-    m = re.search(r'数量[:：]\s*(\d+)', text)
-    if m:
-        return max(int(m.group(1)), 1)
-    # 中文数字、兜底匹配……
-    return 1      # 解析不出时保守记为 1，绝不能是 0</code></pre>
-
-<h2>4.3 提示词的迭代过程</h2>
-
-<p>提示词不是一次写对的，而是<b>根据实际对话暴露的问题逐步补充规则</b>：</p>
-
-<table>
-  <tr>
-    <th style="width:30%">发现的问题</th>
-    <th>补充的规则</th>
-  </tr>
-  <tr>
-    <td>用户说「电脑打不开」（模糊描述）时，AI 直接跳到排查电源开关</td>
-    <td>新增第 3 条：<b>第一步永远是问清具体表现</b></td>
-  </tr>
-  <tr>
-    <td>用户答非所问时，AI 把上一个问题换个说法又问一遍</td>
-    <td>新增第 6 条：<b>先确认信息，再用更简单的方式重问</b></td>
-  </tr>
-  <tr>
-    <td>AI 每次都问「指示灯亮吗？风扇转吗？」，像套模板</td>
-    <td>新增第 4 条：<b>提问要多样化，按故障类型选择切入角度</b></td>
-  </tr>
-  <tr>
-    <td>用户已说明数量，AI 结论里仍写「数量：1 台」</td>
-    <td>新增第 8 条：<b>数量要记住，不能写错，绝不能是 0</b></td>
-  </tr>
-</table>
-
-<div class="callout good">
-  <b>经验：提示词需要根据实际测试结果迭代。</b>
-  第一版写出来的提示词往往不完善，必须通过真实对话发现问题、
-  再针对性补充规则。这条迭代记录已保存在
-  <code>docs/开发过程记录.md</code> 中。
-</div>
-
-<!-- ==================== 五、工程质量保障 ==================== -->
-<h1>五、工程质量保障</h1>
-
-<h2>5.1 自动化测试</h2>
+<h2>4.1 自动化测试</h2>
 
 <p>
 项目包含 <b>371 个自动化测试</b>，覆盖业务逻辑的关键路径与历史缺陷：
 </p>
 
 <table>
-  <tr>
-    <th style="width:40%">测试文件</th>
-    <th style="width:12%">用例数</th>
-    <th>覆盖内容</th>
-  </tr>
-  <tr><td><code>test_schedule.py</code></td><td>56</td>
-      <td>课表解析、脱敏、周次推算、空余查询</td></tr>
-  <tr><td><code>test_overview.py</code></td><td>47</td>
-      <td>影响上课判定、断网、预警跨天、调课筛选</td></tr>
-  <tr><td><code>test_quantity_and_status.py</code></td><td>38</td>
-      <td>数量解析、状态迁移、批量登记</td></tr>
-  <tr><td><code>test_knowledge.py</code></td><td>37</td>
-      <td>检索质量、假阳性防护、自动沉淀</td></tr>
-  <tr><td><code>test_fault_category.py</code></td><td>36</td>
-      <td>故障细分类、反复故障阈值</td></tr>
-  <tr><td><code>test_excel_export.py</code></td><td>32</td>
-      <td>报表口径、纵向合并、合计行</td></tr>
-  <tr><td><code>test_classroom_daily.py</code></td><td>30</td>
-      <td>台账校验、四态统计、逾期判定</td></tr>
-  <tr><td><code>test_facility_target.py</code></td><td>23</td>
-      <td>故障对象判定、设施不计入台数</td></tr>
-  <tr><td><code>test_paths_config.py</code></td><td>16</td>
-      <td>打包后路径解析、空 _MEIPASS 降级</td></tr>
-  <tr><td><code>test_repair_log.py</code></td><td>12</td>
-      <td>台账 CRUD、旧表头迁移</td></tr>
-  <tr><td><code>test_concurrency.py</code></td><td>10</td>
-      <td>并发不丢数据、锁可重入</td></tr>
-  <tr><td><code>test_desktop.py</code> / <code>test_config_key.py</code> /
-          <code>test_css_sanity.py</code></td><td>23</td>
-      <td>启动器端口与就绪等待、Key 来源优先级、样式完整性</td></tr>
+  <tr><th style="width:44%">测试文件</th><th style="width:12%">用例数</th><th>覆盖内容</th></tr>
+  <tr><td><code>test_schedule.py</code></td><td>56</td><td>课表解析、脱敏、周次推算、空余查询</td></tr>
+  <tr><td><code>test_overview.py</code></td><td>47</td><td>影响上课判定、断网、预警跨天、调课筛选</td></tr>
+  <tr><td><code>test_quantity_and_status.py</code></td><td>38</td><td>数量解析、状态迁移、批量登记</td></tr>
+  <tr><td><code>test_knowledge.py</code></td><td>37</td><td>检索质量、假阳性防护、自动沉淀</td></tr>
+  <tr><td><code>test_fault_category.py</code></td><td>36</td><td>故障细分类、反复故障阈值</td></tr>
+  <tr><td>其余 12 个文件</td><td>172</td><td>台账、并发锁、导出、路径解析、桌面启动器等</td></tr>
 </table>
 
 <div class="callout">
@@ -1392,18 +945,9 @@ def parse_quantity(text):
   前者改代码时仍成立，后者稍作重构就误报。
 </div>
 
-<div class="callout warn">
-  <b>要警惕「因为错误的原因而通过」的测试。</b>
-  并发沉淀那条测试曾用 8 条只差一个字符的症状当「不同故障」，
-  而被测的去重逻辑会把它们判为重复：Windows 线程启动慢，
-  8 个线程在写入前都查完了重，于是全部写入、测试通过；
-  Linux 上线程快，才露出真面目。<br><br>
-  <b>这种测试比没有测试更危险</b>——它给虚假的安全感，
-  失败时表现为「时好时坏、只在某个平台挂」，很容易被加个重试糊过去。
-  判断很简单：<b>结论取决于线程时序的测试，测的就不是业务规则。</b>
-</div>
 
-<h2>5.2 持续集成</h2>
+
+<h2>4.2 持续集成</h2>
 
 <pre><code>name: tests
 on:
@@ -1431,106 +975,46 @@ jobs:
 每次推送到 main 或提交 PR，自动在 <b>4 种环境组合</b>上跑一遍测试。
 </p>
 
-<h2>5.3 典型缺陷与修复</h2>
-
-<p>以下是开发过程中真实发现并修复的典型缺陷，均有测试保护。</p>
-
-<h3>缺陷 1：异常被静默吞掉，知识库悄悄失效</h3>
+<h2>4.3 典型缺陷</h2>
 
 <p>
-<b>现象：</b>没有任何报错，程序运行正常，但知识库<b>从未被成功加载</b>。
+开发中真实踩过并修复的缺陷，完整记录（成因、复现数据、修法）见
+<code>迭代日志.md</code>。这里只留两条对<b>方法论</b>最有价值的：
 </p>
 
-<pre><code># 有问题的代码
-try:
-    with open(data_file, 'r', encoding='utf-8') as f:
-        cases = json.load(f)['cases']
-except Exception:
-    return ""          # ← 所有异常被吞掉
-
-# 调用方
-if ctx:                # 空字符串判定为假 → 静默跳过知识库
-    ...</code></pre>
+<h3>一、异常被静默吞掉</h3>
 
 <p>
-<b>根因：</b><code>fault_cases.json</code> 有两处逗号缺失导致 JSON 解析失败，
-但异常被 <code>except</code> 吞掉并返回空字符串，
-程序照常运行，表面上完全看不出问题。
-</p>
-
-<p>
-<b>修复：</b>补全逗号；并加上实际验证——调用函数确认返回值非空。
+<code>except Exception: return ""</code> 把「JSON 解析失败」伪装成了
+「没有知识库」。程序照常运行、界面正常，但知识库从未被加载。
 </p>
 
 <div class="callout warn">
-  <b>经验：<code>except</code> 后返回空值是最危险的失败模式。</b>
-  它把「配置坏了」伪装成「没有配置」。崩溃会立刻暴露问题，
-  而静默失败只会让功能「看起来能用、实际少了一块」。
+  <b>这是最危险的失败模式。</b>
+  崩溃会立刻暴露问题，静默失败只会让功能「看起来能用、实际少了一块」。
 </div>
 
-<h3>缺陷 2：检索同义词缺口</h3>
+<h3>二、只在 Linux 暴露的「检查-写入」竞态</h3>
 
 <p>
-<b>现象：</b>用户搜「整间教室断网」→ 无匹配。但知识库里明明有网络案例。
+<code>if not os.path.exists(F): open(F, 'w')</code> —— 检查与写入之间没有锁，
+而 <code>'w'</code> 是截断写。多线程同时首次调用时，后到的把先到者写的内容清空。
 </p>
 
 <p>
-<b>根因：</b><code>断网</code> 是关键词，但只对「用户说断网」加分；
-案例正文写的是「无法上网」——这个加分永远加不上，
-同义表达之间没有打通。
+Windows 的加锁与线程调度更慢，恰好错开竞态窗口，本地一直是绿的。
+实测 60 轮并发首次创建，<b>47 轮丢数据</b>。
 </p>
 
-<p><b>修复：</b>新增同义词归一表，并在切分前扫描原文。</p>
-
-<h3>缺陷 3：下拉选项在深色主题下看不见</h3>
-
-<p>
-<b>现象：</b>下拉选项在深色主题下是白底浅字，几乎无法阅读。
-</p>
-
-<p>
-<b>根因：</b>只给 <code>&lt;select&gt;</code> 控件设了深色样式，
-没给下拉出来的 <code>&lt;option&gt;</code> 设。
-</p>
-
-<p><b>修复：</b>新增全局 <code>select option</code> 规则统一处理。</p>
-
-<h3>缺陷 4：文件初始化的「检查-写入」竞态</h3>
-
-<p>
-<b>现象：</b>CI 里 Ubuntu 两个 Python 版本时好时坏地失败，
-而 Windows 始终通过。失败只用了 15~19 秒，像是并发用例挂掉。
-</p>
-
-<p>
-<b>根因：</b>数据文件「不存在则创建」这一段的检查与写入之间没有锁，
-而写入用的是 <code>'w'</code> 模式——它是<b>截断写</b>。
-多线程同时首次调用时，后到的会把先到者刚写的内容清空。
-</p>
-
-<pre><code>if not os.path.exists(RECORD_FILE):          # 多个线程都能通过
-    with open(RECORD_FILE, 'w', ...) as f:   # 'w' 截断，覆盖先写入的</code></pre>
-
-<div class="callout warn">
-  <b>为什么本地一直没发现：</b>这个竞态只在 Linux 上暴露，而且不是每次都触发——
-  很容易被误判为「测试不稳定」而加个重试糊过去。实测 60 轮并发首次创建，
-  <b>47 轮丢数据</b>。成因与可重入改造见 3.5 节。
+<div class="callout">
+  <b>判断标准：如果一条测试的结论取决于线程时序，那它测的就不是业务规则。</b>
+  这类缺陷很容易被当成「测试不稳定」而加个重试糊过去。
 </div>
 
-<p>
-<b>修复：</b>整个检查-创建过程持锁；创建改用 <code>'x'</code> 模式
-（并发进入者会拿到 <code>FileExistsError</code>，而不是把文件截断）。
-</p>
+<!-- ==================== 五、可复现性论证 ==================== -->
+<h1>五、可复现性论证</h1>
 
-<p>
-<b>验证：</b>修复后 60 轮压测 0 失败；新增回归测试并确认
-<b>移除修复后该测试会立即失败</b>，确保测试真正覆盖了这个缺陷。
-</p>
-
-<!-- ==================== 六、可复现性论证 ==================== -->
-<h1>六、可复现性论证</h1>
-
-<h2>6.1 环境与依赖</h2>
+<h2>5.1 环境与依赖</h2>
 
 <table>
   <tr><th style="width:26%">项目</th><th>要求</th></tr>
@@ -1542,7 +1026,7 @@ if ctx:                # 空字符串判定为假 → 静默跳过知识库
   <tr><td>API Key</td><td>DeepSeek API Key（从环境变量读取）</td></tr>
 </table>
 
-<h2>6.2 复现步骤</h2>
+<h2>5.2 复现步骤</h2>
 
 <pre><code># 1) 克隆仓库
 git clone git@github.com:liyishuo1/dsh-fault-diagnosis.git
@@ -1571,189 +1055,97 @@ python -m pytest tests -v</code></pre>
   这也是刻意保持「零额外依赖」的原因——降低复现门槛本身就是可复现性的一部分。
 </div>
 
-<h2>6.3 演进链路</h2>
+<h2>5.3 演进链路</h2>
 
 <p>
-代码仓库保留了完整的细粒度提交历史，共 <b>89 个提交</b>，
+代码仓库保留了完整的细粒度提交历史，共 <b>96 个提交</b>，
 首次提交仅包含 <code>.gitignore</code>（不是一次性 initial commit）。
 每次提交对应一个功能模块或一次修复：
 </p>
 
 <table>
-  <tr><th style="width:14%">阶段</th><th style="width:18%">版本</th><th>关键提交</th></tr>
-  <tr><td rowspan="2">起步</td><td>v0.1 ~ v0.2</td>
-      <td>知识库 + 本地查询；决策树逐步诊断（<b>做出来验证后暂缓</b>）</td></tr>
-  <tr><td>v0.3 ~ v0.4</td>
-      <td>接入大模型 API；改为对话式逐层排查</td></tr>
-  <tr><td rowspan="2">成型</td><td>v0.5</td>
-      <td>Web 界面、流式输出、报修台账与数据看板</td></tr>
-  <tr><td>v0.6 ~ v0.8</td>
-      <td>教室设备台账、RAG 检索增强与自动沉淀、并发写入保护</td></tr>
-  <tr><td rowspan="2">加固</td><td>v0.9 ~ v0.10</td>
-      <td>自动化测试与 CI、统一文件锁、导出 Excel</td></tr>
-  <tr><td>v0.11 ~ v0.12</td>
-      <td>故障对象与细分类、反复故障分析、课表导入与教师脱敏</td></tr>
-  <tr><td rowspan="2">迭代</td><td>v0.13 ~ v0.14</td>
-      <td>运行总览与课程预警；课表页改为当天矩阵；列表分页</td></tr>
-  <tr><td>v0.15</td>
-      <td>桌面窗口版与 exe 打包；API Key 三级来源；界面性能修复</td></tr>
+  <tr><th style="width:16%">版本</th><th style="width:18%">能力</th><th>多了什么</th></tr>
+  <tr><td>v0.1.0</td><td><b>能查</b></td>
+      <td>本地故障知识库 + 关键词匹配查询（决策树方案做出来验证后暂缓）</td></tr>
+  <tr><td>v0.2.0</td><td><b>能问</b></td>
+      <td>接入大模型 API、改为对话式逐层排查、Web 界面与报修台账</td></tr>
+  <tr><td>v0.3.0</td><td><b>能记</b></td>
+      <td>教室设备台账、RAG 检索增强与自动沉淀、并发写入保护、
+          自动化测试与 CI、导出 Excel</td></tr>
+  <tr><td>v0.4.0</td><td><b>能管</b></td>
+      <td>故障对象与细分类、反复故障分析、课表与调课建议、运行总览</td></tr>
+  <tr><td>v1.0.0</td><td><b>能用</b></td>
+      <td>桌面窗口版与 exe 打包、界面性能修复</td></tr>
+</table>
+
+<p>
+版本号按语义化三段编：<code>MINOR</code> 表示内容大更新，
+<code>PATCH</code> 表示缺陷修复。
+早先每个功能都 +0.1，一路排到 0.15.0，十五条看着像流水账、看不出主线；
+现在收敛成 5 个里程碑，修 bug 单独记，不占版本号。
+</p>
+
+<h3>缺陷修复（不占版本号）</h3>
+
+<table>
+  <tr><th style="width:16%">交付于</th><th>修复内容</th></tr>
+  <tr><td>v0.4.0</td>
+      <td>刷新按钮点了没反应；单间课表弹窗叉号关不掉；
+          投影等教学设备故障不产生预警</td></tr>
+  <tr><td>v1.0.0</td>
+      <td>桌面窗口里导出 Excel 无反应；课表卡在「读取中」；
+          窗口最大化后缩不小；下拉框在深色主题下白底白字</td></tr>
 </table>
 
 <div class="callout">
-  <b>关于「决策树方案暂缓」：</b>
-  这一版是<b>做出来、验证过、再决定放弃</b>的，而非凭空判断。
-  实测发现每增加一种故障都要手工编写大量节点，且分支写死、
-  无法覆盖真实故障的多样性。代码保留在仓库中备查。
-  这条记录本身就是「方案不是一次做对的」的证明。
+  <b>这张表只记"使用者能感知到"的缺陷。</b>
+  内部重构、改名、补测试都不进表 —— 否则修复列表会变成开发流水账，
+  和版本表一样失去信息量。
 </div>
 
-<!-- ==================== 七、AI 协作过程 ==================== -->
-<h1>七、AI 协作过程</h1>
 
-<h2>7.1 协作方式</h2>
+
+<!-- ==================== 六、AI 协作过程 ==================== -->
+<h1>六、AI 协作过程</h1>
 
 <p>
-本项目全程使用 AI 辅助开发。协作方式不是「让 AI 写完整代码」，
-而是<b>人负责判断与验证，AI 负责实现与建议</b>：
+本项目全程使用 AI 辅助，但不是「让 AI 写完整代码」，
+而是<b>人负责判断与验证，AI 负责实现与建议</b>。
 </p>
 
 <table>
-  <tr><th style="width:26%">环节</th><th>人的职责</th><th>AI 的职责</th></tr>
-  <tr>
-    <td>需求分析</td>
-    <td>提出真实痛点，定义验收标准</td>
-    <td>给出数据结构与实现方案</td>
-  </tr>
-  <tr>
-    <td>编码实现</td>
-    <td>审查代码逻辑，要求逐段解释</td>
-    <td>生成代码，说明设计取舍</td>
-  </tr>
-  <tr>
-    <td>问题排查</td>
-    <td><b>提供完整报错信息与复现步骤</b></td>
-    <td>定位根因，给出修复方案</td>
-  </tr>
-  <tr>
-    <td>效果验证</td>
-    <td><b>实际运行验证，发现与预期不符之处</b></td>
-    <td>根据反馈调整</td>
-  </tr>
+  <tr><th style="width:24%">环节</th><th>人</th><th>AI</th></tr>
+  <tr><td>需求分析</td><td>提出痛点、定义验收标准</td><td>给出数据结构与方案</td></tr>
+  <tr><td>编码实现</td><td>审查逻辑、要求逐段解释</td><td>生成代码、说明取舍</td></tr>
+  <tr><td>问题排查</td><td><b>提供完整报错与复现步骤</b></td><td>定位根因、给出修法</td></tr>
+  <tr><td>效果验证</td><td><b>实际运行，发现与预期不符</b></td><td>按反馈调整</td></tr>
 </table>
-
-<h2>7.2 典型协作案例</h2>
-
-<h3>案例：从「6 张表」到「1 张表」的需求纠偏</h3>
-
-<p>
-<b>第一轮 Prompt（我）：</b>
-</p>
-
-<pre><code>设计导出功能：将报修记录导出成 excel。
-表格顺序按照未报修-已报修-已解决处理，按照教学楼-教室进行分类。
-要求体现教室历史故障原因和次数，并且反应现状：
-目前教室有多少台能用，多少台不能用，不能用的一一对应好损坏时间和原因</code></pre>
-
-<p>
-<b>AI 实现：</b>生成了 6 个工作表（总览、故障总表、教室现状、损坏明细、故障统计、未录入台账）。
-
-<b>第二轮反馈（我）：</b>
-</p>
-
-<pre><code>导出的格式完全不行，你听我的要求，说完全部需求后再去做</code></pre>
-
-<p>
-<b>第三轮（我给出完整需求）：</b>
-</p>
-
-<pre><code>用途需要领导看，要直观看出每间教室的情况。
-你将工作表说明全部删除，表的最左侧是教学楼，
-一次向下排，教学楼的右边接着对应的教室。
-表头最上面是教学楼-教室-总设备数量-正常运行设备数量-损坏数量及其原因</code></pre>
-
-<p>
-<b>进一步澄清（我）：</b>
-</p>
-
-<pre><code>因为是领导看，领导不管修没修，他只管现在能运行多少，
-所以待修理和未报修都算作损坏，已解决不用单拎出来，
-放入正常运作数量里。只留这一张。</code></pre>
-
-<p>
-<b>最终结果：</b>单张汇总表，一间教室一行，
-「正常 + 损坏 = 设备总数」，账目可直接对上。
-</p>
-
-<div class="callout good">
-  <b>这个案例说明什么：</b>
-  AI 的实现能力很强，但<b>它不掌握业务的真实约束</b>——
-  它不知道报表是给谁看的、领导关心什么。
-  第一版 6 张表在技术上没有错误，但解决的不是真问题。
-  把「用途、受众、判断标准」讲清楚，比反复描述格式更有效。
-</div>
-
-<h3>案例：AI 主动发现的隐藏缺陷</h3>
-
-<p>
-在实现「自动沉淀数据分离」时，AI 在回归测试中发现了一个更严重的问题：
-</p>
-
-<pre><code>新沉淀一条"机房空调漏水导致地板大面积湿滑"
-然后搜"空调漏水"  →  无匹配 ❌</code></pre>
-
-<p>
-刚存进去的案例，用关键词居然搜不到——等于沉淀了也没用。
-根因是切分粒度不一致（查询是 4 字整段，案例被切成 3-gram）。
-</p>
-
-<p>
-同一次测试还暴露出 AI 先前加的一个「降噪过滤器」是错的：
-它只保留「能对应到已知词表」的词，
-导致<b>词表外的新领域（如"空调漏水"）永远无法沉淀</b>。
-该过滤器已被移除，改在打分环节解决假阳性。
-</p>
 
 <div class="callout warn">
-  <b>AI 也会犯错，而且可能错得很隐蔽。</b>
-  那个过滤器初衷是好的（挡掉跨词碎片噪音），
-  但实现方式等于给知识库设了一道隐形准入限制。
-  <b>凡是「让系统只能认识预先知道的东西」的设计，
-  都会在遇到真实世界的新情况时失效。</b>
-  这个教训只有靠真实测试才能发现，靠阅读代码是看不出来的。
+  <b>AI 最大的风险不是写不出代码，是写错的时候看起来是对的。</b>
+  故障分类器曾把「电脑打不开」判成「显示故障」——
+  诊断结论里的鉴别诊断（「换线后显示器正常」）被当成了关键词。
+  这类错误只能靠固定测试集发现，不能靠「看一眼觉得没问题」。
 </div>
 
-<h2>7.3 完整对话记录</h2>
-
 <p>
-项目保留了与 AI 协作的<b>完整原始对话记录</b>（未经改写）：
+完整对话记录（含 Prompt 原文、AI 回复、我的纠偏）在同目录：
 </p>
 
-<table>
-  <tr><th style="width:40%">文件</th><th>内容</th></tr>
-  <tr>
-    <td><code>docs/AI对话记录-完整版.md</code></td>
-    <td>全部 11 轮对话，含每轮的 Prompt、工具调用与 AI 回复</td>
-  </tr>
-  <tr>
-    <td><code>docs/AI对话记录-关键片段.md</code></td>
-    <td>精选 6 段「提问 → 方案 → 踩坑 → 修复」的完整过程</td>
-  </tr>
-</table>
+<ul>
+  <li><code>AI对话Prompt快照.md</code> —— 按阶段整理的真实提示词，过程证据</li>
+  <li><code>AI对话记录-关键片段.md</code> —— 对外展示用精简版</li>
+  <li><code>AI对话记录-完整版.md</code> —— 内部存档，不对外</li>
+</ul>
 
 <p>
-这两份文件由 <code>tools/export_conversation.py</code> 从 AI 工具的会话日志
-<b>自动导出</b>，可保证过程真实可追溯，不存在事后编撰的可能。
+这些记录由工具 <code>tools/extract_prompts.py</code> 从会话日志<b>自动导出</b>，
+不是事后补写 —— 这是「过程可复现」最能自证的一种方式。
 </p>
-
-<div class="callout">
-  <b>为什么这份材料重要：</b>
-  评审要求「过程可复现」，而最容易造假的恰恰是「开发过程叙述」。
-  从工具日志直接导出，是唯一能自证真实的方式。
-</div>
 
 <div style="margin-top:44px;padding-top:18px;border-top:1px solid #e2e8f0;
             text-align:center;color:#a0aec0;font-size:9.5pt">
-  机房故障智能诊断助手 · 技术文档 · v0.15.0<br>
+  机房故障智能诊断助手 · 技术文档 · v1.0.0<br>
   李一硕 · 2026 年 10 月
 </div>
 
