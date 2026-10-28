@@ -73,3 +73,11 @@ htmlcov/
 
 # PyInstaller 构建产物
 tools/_debug.spec
+
+# 视频素材与成片（体积大，不进仓库）
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.wav
