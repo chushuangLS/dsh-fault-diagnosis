@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ai_diagnosis import DiagnosisSession
 import repair_log
+import auth
+from getpass import getpass
 import version
 
 DATA_FILE = paths.data_file('fault_cases.json')
@@ -72,6 +74,11 @@ def print_help():
 
 def main():
     """主程序入口"""
+    auth.initialize()
+    actor = auth.authenticate(input('用户名：'), getpass('密码：'))
+    if not actor:
+        print('用户名或密码错误')
+        return
     print("=" * 55)
     print(f"  机房故障智能诊断助手  v{version.VERSION}")
     print("=" * 55)
@@ -129,7 +136,7 @@ def main():
                 continue
             rid, new_status = parts[1], parts[2]
             note = ' '.join(parts[3:]) if len(parts) > 3 else ''
-            ok, msg = repair_log.update_status(rid, new_status, note)
+            ok, msg = repair_log.update_status(rid, new_status, note, actor=actor)
             print(('✅ ' if ok else '❌ ') + msg)
             continue
 
@@ -167,6 +174,7 @@ def main():
                 if need_repair:
                     classroom = session.classroom or '未填写'
                     rid = repair_log.add_record(
+                        actor=actor,
                         classroom=classroom,
                         symptom=session.symptom,
                         conclusion=reply,

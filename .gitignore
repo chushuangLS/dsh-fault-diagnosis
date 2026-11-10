@@ -81,3 +81,10 @@ tools/_debug.spec
 *.avi
 *.webm
 *.wav
+
+# Local account data and audit recovery
+data/users.json
+data/invites.json
+data/auth_*.json
+data/audit_log.jsonl
+data/repair_records.csv.pending.json

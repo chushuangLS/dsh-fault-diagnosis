@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ '注册' if register else '登录' }} · 机房诊断助手</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+<canvas id="bg-canvas" aria-hidden="true"></canvas>
+<main>
+<div class="auth-stage">
+<form id="account" data-register="{{ 'yes' if register else 'no' }}" data-csrf="{{ csrf }}">
+<h1>{{ '注册' if register else '登录' }}</h1>
+<p>机房诊断助手</p>
+<label>用户名<input name="name" required maxlength="50" autocomplete="username"></label>
+<label>密码<input name="password" type="password" required maxlength="128" autocomplete="{{ 'new-password' if register else 'current-password' }}"></label>
+{% if register %}
+<label>确认密码<input name="confirm_password" type="password" required maxlength="128" autocomplete="new-password"></label>
+<label>邀请码<input name="invite_code" required maxlength="14" autocomplete="off"></label>
+{% endif %}
+<p id="message" role="status"></p>
+<button>{{ '注册' if register else '登录' }}</button>
+<a href="{{ '/login' if register else '/register' }}">{{ '已有账号，去登录' if register else '没有账号，去注册' }}</a>
+{% if not register %}<small>忘记密码请联系本机管理员。</small>{% endif %}
+</form>
+<span class="auth-square front" aria-hidden="true" style="--x:-47px;--y:-234px;--w:71px;--blur:7px;--opacity:100%;--hi:2%;--amp:14px;--duration:8s;--delay:0s"></span>
+<span class="auth-square" aria-hidden="true" style="--x:229px;--y:-223px;--w:107px;--blur:40px;--opacity:100%;--hi:0%;--amp:18px;--duration:9s;--delay:1.4s"></span>
+<span class="auth-square" aria-hidden="true" style="--x:-93px;--y:289px;--w:67px;--blur:8px;--opacity:72%;--hi:2%;--amp:14px;--duration:8.5s;--delay:1.1s"></span>
+<span class="auth-square front" aria-hidden="true" style="--x:-272px;--y:6px;--w:151px;--blur:7px;--opacity:100%;--hi:2%;--amp:20px;--duration:8.8s;--delay:0.6s"></span>
+<span class="auth-square front" aria-hidden="true" style="--x:253px;--y:154px;--w:87px;--blur:7px;--opacity:100%;--hi:2%;--amp:16px;--duration:7.6s;--delay:2s"></span>
+</div>
+</main>
+<script src="{{ url_for('static', filename='background.js') }}"></script>
+<script src="{{ url_for('static', filename='auth.js') }}"></script>
+</body>
+</html>

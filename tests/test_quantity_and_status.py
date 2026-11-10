@@ -55,7 +55,7 @@ class TestStatusConstants:
         assert repair_log.STATUS_SELF_FIX in repair_log.UNRESOLVED_STATUS
         assert repair_log.STATUS_RESOLVED not in repair_log.UNRESOLVED_STATUS
 
-    def test_statistics_covers_every_status(self, tmp_data):
+    def test_statistics_covers_every_status(self, tmp_data, login_as):
         """
         统计接口必须覆盖全部状态，各类相加要等于总数
 
@@ -70,7 +70,7 @@ class TestStatusConstants:
         for st in repair_log.ALL_STATUS:
             repair_log.add_record('A101', f'现象-{st}', '结论', status=st)
 
-        client = webapp.app.test_client()
+        client, _ = login_as()
         resp = client.get('/api/statistics')
         assert resp.status_code == 200
 

@@ -10,12 +10,15 @@
 """
 
 import csv
+import io
+from pathlib import Path
 import os
 from datetime import datetime
 
 from filelock import file_lock
 
 import paths
+import audit
 
 # 记录文件路径
 RECORD_FILE = paths.data_file('repair_records.csv')
@@ -23,7 +26,7 @@ RECORD_FILE = paths.data_file('repair_records.csv')
 # 表头
 # 说明：教学楼、数量、故障对象 三列是后加的，旧记录可能为空，读取时做兼容处理
 FIELDS = ['记录编号', '时间', '教学楼', '教室', '故障现象', '诊断结论',
-          '状态', '数量', '故障对象', '备注']
+          '状态', '数量', '故障对象', '备注', '上报人', '最后修改人', '删除标记']
 
 # 状态常量
 #
@@ -86,6 +89,7 @@ def init_file():
       实测 60 轮并发首次创建中有 47 轮丢数据。
     """
     with file_lock(RECORD_FILE):
+        audit.recover(RECORD_FILE)
         _init_file_locked()
 
 
@@ -103,11 +107,11 @@ def _init_file_locked():
         return
 
     # 检查表头是否需要迁移
-    try:
-        with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
-            rows = list(csv.reader(f))
-    except Exception:
-        return
+    with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
+        rows = list(csv.reader(f, strict=True))
+    if rows and (len(set(rows[0])) != len(rows[0]) or '记录编号' not in rows[0]
+                 or any(len(row) > len(rows[0]) for row in rows[1:])):
+        raise ValueError('报修 CSV 表头或列数不合法')
 
     if not rows:
         with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
@@ -115,15 +119,19 @@ def _init_file_locked():
         return
 
     header = rows[0]
-    if header == FIELDS:
+    if all(field in header for field in FIELDS):
         return  # 已是最新，无需处理
 
     # 按旧表头重建：逐列映射到新字段，缺失的补空
-    migrated = [FIELDS]
+    header_fields = header + [field for field in FIELDS if field not in header]
+    backup = Path(RECORD_FILE + '.pre-accounts.bak')
+    if not backup.exists():
+        audit.atomic_write(backup, Path(RECORD_FILE).read_bytes())
+    migrated = [header_fields]
     for old_row in rows[1:]:
         mapping = dict(zip(header, old_row))
         new_row = []
-        for field in FIELDS:
+        for field in header_fields:
             val = mapping.get(field, '')
             # 「数量」是后加的列：旧记录一律补 1（至少坏了一台），
             # 留空会让统计台数时算成 0
@@ -135,15 +143,17 @@ def _init_file_locked():
             new_row.append(val)
         migrated.append(new_row)
 
-    with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-        csv.writer(f).writerows(migrated)
+    buffer = io.StringIO(newline='')
+    csv.writer(buffer).writerows(migrated)
+    audit.atomic_write(RECORD_FILE, buffer.getvalue().encode('utf-8-sig'))
 
 
-def load_records():
+def load_records(*, include_deleted=False):
     """读取所有记录（兼容缺少「教学楼」「故障对象」等列的旧文件）"""
-    init_file()
-    with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
-        rows = list(csv.DictReader(f))
+    with file_lock(RECORD_FILE):
+        init_file()
+        with open(RECORD_FILE, 'r', newline='', encoding='utf-8-sig') as f:
+            rows = list(csv.DictReader(f, restval=''))
 
     # 兼容处理：补齐可能缺失的列
     for r in rows:
@@ -160,7 +170,34 @@ def load_records():
         if r.get('故障对象') not in ALL_TARGETS:
             r['故障对象'] = LEGACY_TARGET
 
-    return rows
+    return rows if include_deleted else [row for row in rows if not row['删除标记']]
+
+
+def _save_records(records, event=None):
+    with open(RECORD_FILE, encoding='utf-8-sig', newline='') as source:
+        header = next(csv.reader(source))
+    buffer = io.StringIO(newline='')
+    writer = csv.DictWriter(buffer, fieldnames=header)
+    writer.writeheader()
+    writer.writerows(records)
+    audit.commit(RECORD_FILE, buffer.getvalue().encode('utf-8-sig'), event)
+
+
+def backfill_reporters(name, record_ids, actor):
+    with file_lock(RECORD_FILE):
+        records = load_records(include_deleted=True)
+        missing = record_ids - {r['记录编号'] for r in records}
+        if missing:
+            raise ValueError('未找到记录：' + ', '.join(sorted(missing)))
+        updated = []
+        for record in records:
+            if record['记录编号'] in record_ids and not record['上报人']:
+                record['上报人'] = name
+                updated.append(record['记录编号'])
+        if updated:
+            event = audit.make_event(actor, 'migrate_reporters', reporter=name, record_ids=updated)
+            _save_records(records, event)
+        return len(updated)
 
 
 def get_target(record):
@@ -176,20 +213,15 @@ def is_facility(record):
 
 def next_id():
     """生成下一个记录编号"""
-    records = load_records()
-    if not records:
-        return 'R001'
-    # 取最后一个编号，加 1
-    last = records[-1]['记录编号']
-    try:
-        num = int(last[1:]) + 1
-    except ValueError:
-        num = len(records) + 1
-    return f'R{num:03d}'
+    records = load_records(include_deleted=True)
+    numbers = [int(row['记录编号'][1:]) for row in records
+               if row['记录编号'].startswith('R') and row['记录编号'][1:].isascii()
+               and row['记录编号'][1:].isdigit()]
+    return f'R{max(numbers, default=0) + 1:03d}'
 
 
 def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
-               note='', building='', quantity=1, target=TARGET_PC):
+               note='', building='', quantity=1, target=TARGET_PC, *, actor=None):
     """
     新增一条报修记录
 
@@ -237,21 +269,14 @@ def add_record(classroom, symptom, conclusion, status=STATUS_PENDING,
     # 并发提交时不锁会生成重复编号或丢失记录
     with file_lock(RECORD_FILE):
         record_id = next_id()
-
-        with open(RECORD_FILE, 'a', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                record_id,
-                datetime.now().strftime('%Y-%m-%d %H:%M'),
-                building or '',
-                classroom,
-                symptom,
-                conclusion,
-                status,
-                quantity,
-                target,
-                note,
-            ])
+        records = load_records(include_deleted=True)
+        record = dict(zip(FIELDS, [
+            record_id, datetime.now().strftime('%Y-%m-%d %H:%M'), building or '',
+            classroom, symptom, conclusion, status, quantity, target, note,
+            actor['name'] if actor else '', '', '',
+        ]))
+        event = audit.make_event(actor, 'create', record, detail=symptom) if actor else None
+        _save_records([*records, record], event)
 
     return record_id
 
@@ -269,7 +294,7 @@ def get_quantity(record):
         return 1
 
 
-def update_status(record_id, new_status, note=''):
+def update_status(record_id, new_status, note='', *, actor=None):
     """
     修改某条记录的状态
 
@@ -284,35 +309,34 @@ def update_status(record_id, new_status, note=''):
         return False, f"状态必须是：{'/'.join(ALL_STATUS)}"
 
     with file_lock(RECORD_FILE):
-        return _update_status_locked(record_id, new_status, note)
+        return _update_status_locked(record_id, new_status, note, actor)
 
 
-def _update_status_locked(record_id, new_status, note):
-    records = load_records()
-    found = False
+def _update_status_locked(record_id, new_status, note, actor):
+    records = load_records(include_deleted=True)
+    for record in records:
+        if record['记录编号'] != record_id or record['删除标记']:
+            continue
+        old_status = record['状态']
+        old_note = record.get('备注', '')
+        if old_status == new_status and not note:
+            return True, '状态未变化'
+        record['状态'] = new_status
+        if note:
+            record['备注'] = (old_note + '; ' + note).strip('; ') if old_note else note
+        event = None
+        if actor:
+            if old_status != new_status:
+                record['最后修改人'] = actor['name']
+                event = audit.make_event(actor, 'status', record, **{'from': old_status, 'to': new_status})
+            else:
+                event = audit.make_event(actor, 'update', record, fields=['备注'])
+        _save_records(records, event)
+        return True, '记录状态已更新'
+    return False, f'未找到记录 {record_id}'
 
-    for r in records:
-        if r['记录编号'] == record_id:
-            r['状态'] = new_status
-            if note:
-                old_note = r.get('备注', '')
-                r['备注'] = (old_note + '; ' + note).strip('; ') if old_note else note
-            found = True
-            break
 
-    if not found:
-        return False, f"未找到记录 {record_id}"
-
-    # 写回
-    with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
-        writer.writeheader()
-        writer.writerows(records)
-
-    return True, f"记录 {record_id} 已更新为「{new_status}」"
-
-
-def update_record(record_id, **fields):
+def update_record(record_id, *, actor=None, **fields):
     """
     修改记录的任意字段
 
@@ -331,15 +355,16 @@ def update_record(record_id, **fields):
     }
 
     with file_lock(RECORD_FILE):
-        return _update_record_locked(record_id, editable, fields)
+        return _update_record_locked(record_id, editable, fields, actor)
 
 
-def _update_record_locked(record_id, editable, fields):
-    records = load_records()
+def _update_record_locked(record_id, editable, fields, actor):
+    records = load_records(include_deleted=True)
     for r in records:
-        if r['记录编号'] != record_id:
+        if r['记录编号'] != record_id or r['删除标记']:
             continue
 
+        before = r.copy()
         for cn, en in editable.items():
             if en in fields and fields[en] is not None:
                 val = str(fields[en]).strip()
@@ -351,31 +376,30 @@ def _update_record_locked(record_id, editable, fields):
                         continue
                 r[cn] = val
 
-        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS)
-            writer.writeheader()
-            writer.writerows(records)
+        changed = {key: {'from': before[key], 'to': r[key]} for key in editable if before[key] != r[key]}
+        if changed:
+            event = audit.make_event(actor, 'update', r, changes=changed) if actor else None
+            _save_records(records, event)
 
         return True, f'记录 {record_id} 已更新'
 
     return False, f'未找到记录 {record_id}'
 
 
-def delete_record(record_id):
-    """删除一条记录"""
+def delete_record(record_id, *, actor=None):
     with file_lock(RECORD_FILE):
-        records = load_records()
-        kept = [r for r in records if r['记录编号'] != record_id]
-
-        if len(kept) == len(records):
-            return False, f'未找到记录 {record_id}'
-
-        with open(RECORD_FILE, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS)
-            writer.writeheader()
-            writer.writerows(kept)
-
-        return True, f'记录 {record_id} 已删除'
+        records = load_records(include_deleted=True)
+        for record in records:
+            if record['记录编号'] != record_id:
+                continue
+            if record['删除标记']:
+                return True, '记录已删除'
+            name = actor['name'] if actor else '本机维护'
+            record['删除标记'] = f'{name}@{datetime.now().astimezone().isoformat()}'
+            event = audit.make_event(actor, 'delete', record) if actor else None
+            _save_records(records, event)
+            return True, '记录已删除'
+        return False, f'未找到记录 {record_id}'
 
 
 # 状态的展示优先级：数字越小越靠前
@@ -536,7 +560,7 @@ def repeated_faults(min_count=None, min_recur=None):
     return out
 
 
-def register_faults(building, classroom, causes):
+def register_faults(building, classroom, causes, *, actor=None):
     """
     批量登记同一教室的多个损坏原因
 
@@ -579,6 +603,7 @@ def register_faults(building, classroom, causes):
             target = TARGET_PC
 
         rid = add_record(
+            actor=actor,
             classroom=classroom,
             symptom=reason,
             conclusion=f'原因：{reason}',

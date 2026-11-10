@@ -93,3 +93,28 @@ def seeded_rooms(tmp_data):
     with open(classroom.DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump({'buildings': []}, f, ensure_ascii=False, indent=2)
     return classroom.DATA_FILE
+
+@pytest.fixture
+def login_as(tmp_data, monkeypatch):
+    import app as webapp
+    import auth
+    monkeypatch.setattr(auth.paths, 'data_dir', lambda: str(tmp_data))
+    monkeypatch.setattr(webapp.app, 'secret_key', None)
+
+    def login(role='member', name=None):
+        client = webapp.app.test_client()
+        assert client.get('/login').status_code == 200
+        with client.session_transaction() as browser:
+            headers = {'X-CSRF-Token': browser['csrf']}
+        name = name or {'member': '王值班', 'admin': '值班主管'}[role]
+        credentials = {'name': name, 'password': 'test-password'}
+        code = auth._read(auth._path('invites.json'))[role + '_code']
+        response = client.post('/api/auth/register', headers=headers, json={
+            **credentials, 'confirm_password': credentials['password'], 'invite_code': code,
+        })
+        assert response.status_code in (201, 409)
+        assert client.post('/api/auth/login', headers=headers, json=credentials).status_code == 200
+        token = client.get('/api/auth/me').get_json()['csrf']
+        return client, {'X-CSRF-Token': token}
+
+    return login

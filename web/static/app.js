@@ -635,7 +635,7 @@ async function sendMessage() {
             const note = document.createElement('div');
             note.className = 'repair-note';
             note.textContent =
-              `已记入报修台账（编号 ${evt.record_id}，教室 ${evt.classroom || '未填写'}），可在「报修记录」中跟踪处理进度。`;
+              `已记入报修台账（教室 ${evt.classroom || '未填写'}），可在「报修记录」中跟踪处理进度。`;
             body.parentNode.appendChild(note);
                       }
 
@@ -880,7 +880,7 @@ async function editRecordDialog(rec) {
   overlay.innerHTML = `
     <div class="modal" style="max-width:560px">
       <div class="modal-head">
-        <h3>编辑记录 ${escapeHtml(rec['记录编号'])}</h3>
+        <h3>编辑报修记录</h3>
         <button class="modal-close" id="er-close" title="关闭">${icon('i-close', 16)}</button>
       </div>
       <div class="modal-body">
@@ -1195,6 +1195,7 @@ async function loadRecords() {
           ${qtyHtml}
           <span class="badge ${statusClass(r['状态'])}">${escapeHtml(r['状态'])}</span>
           <span class="record-time">${escapeHtml(r['时间'])}</span>
+          <span>上报人：${escapeHtml(r['上报人'] || '未登记')}</span>
         </div>
         <div class="record-body">
           <div><span class="label">现象：</span>${escapeHtml(r['故障现象'])}</div>
@@ -1206,7 +1207,7 @@ async function loadRecords() {
           <button data-id="${escapeHtml(r['记录编号'])}" data-status="已解决">标记已解决</button>
           <button data-id="${escapeHtml(r['记录编号'])}" data-status="未报修">重置为未报修</button>
           <button class="edit-btn" data-edit="${escapeHtml(r['记录编号'])}">编辑</button>
-          <button class="del-btn" data-del="${escapeHtml(r['记录编号'])}">删除</button>
+          ${isAccountAdmin ? `<button class="del-btn" data-del="${escapeHtml(r['记录编号'])}">删除</button>` : ''}
         </div>
       `;
       list.appendChild(el);
@@ -1246,7 +1247,7 @@ async function loadRecords() {
     list.querySelectorAll('[data-del]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const rid = btn.dataset.del;
-        if (!confirm(`确定删除记录 ${rid}？此操作不可撤销。`)) return;
+        if (!confirm(`确定删除这条报修记录？`)) return;
         await fetch('/api/records/' + encodeURIComponent(rid), { method: 'DELETE' });
         loadRecords();
         refreshRailStats();
@@ -1542,7 +1543,7 @@ function renderOverviewGrid(rooms) {
         openRoomSchedule(el.dataset.building, el.dataset.room);
         return;
       }
-      gotoRoomDetail(el.dataset.room);
+      gotoRoomDetail(el.dataset.room, el.dataset.building);
     });
   });
 
@@ -1758,7 +1759,7 @@ async function loadRepeatedFaults() {
   // 点条目 → 打开该教室详情
   box.querySelectorAll('.repeat-item').forEach(el => {
     el.addEventListener('click', () => {
-      gotoRoomDetail(el.dataset.room);
+      gotoRoomDetail(el.dataset.room, el.dataset.building);
     });
   });
 
@@ -1819,8 +1820,12 @@ function gotoRecordsWithStatus(status) {
  * 所以先查一遍教室台账把教学楼补出来；查不到就退化成打开管理弹窗，
  * 让用户自己在列表里找，至少不会点了没反应。
  */
-async function gotoRoomDetail(roomName) {
+async function gotoRoomDetail(roomName, building) {
   if (!roomName) return;
+  if (building) {
+    adminModal.classList.remove('hidden');
+    return openRoomDetail(building, roomName);
+  }
 
   let hit = null;
   try {
@@ -1840,7 +1845,7 @@ async function gotoRoomDetail(roomName) {
   if (roomChart) { roomChart.dispose(); roomChart = null; }
 }
 
-$('#gear-btn').addEventListener('click', openAdmin);
+$('#gear-btn')?.addEventListener('click', openAdmin);
 $('#admin-close').addEventListener('click', closeAdmin);
 adminModal.addEventListener('click', (e) => {
   if (e.target === adminModal) closeAdmin();
@@ -2084,15 +2089,17 @@ async function loadClassrooms() {
               ${icon('i-building', 15)} ${escapeHtml(b.name)}
               <span class="count">${b.rooms.length} 间</span>
             </span>
-            <button class="icon-btn" data-del-building="${escapeHtml(b.name)}">删除</button>
+            ${isAccountAdmin ? `<button class="icon-btn" data-del-building="${escapeHtml(b.name)}">删除</button>` : ''}
           </div>
           ${rooms}
+          ${isAccountAdmin ? `
           <div class="admin-toolbar" style="padding:12px 16px;margin:0">
             <input type="text" placeholder="教室名，如 A101" data-room-name="${escapeHtml(b.name)}">
             <input type="number" placeholder="电脑数" style="max-width:100px" data-room-total="${escapeHtml(b.name)}">
             <input type="number" placeholder="损坏" style="max-width:90px" data-room-broken="${escapeHtml(b.name)}">
             <button class="btn-primary btn-sm" data-add-room="${escapeHtml(b.name)}">添加教室</button>
           </div>
+          ` : ''}
         </div>
       `;
     }).join('');
@@ -2173,7 +2180,7 @@ function bindListEvents() {
 }
 
 // 添加教学楼
-$('#add-building').addEventListener('click', async () => {
+$('#add-building')?.addEventListener('click', async () => {
   const input = $('#new-building');
   const name = input.value.trim();
   if (!name) { alert('请输入教学楼名称'); return; }
@@ -2502,7 +2509,7 @@ async function openRoomDetail(building, roomName) {
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已报修">标记已报修</button>
                  <button data-set-status="${escapeHtml(r['记录编号'])}" data-to="已解决">${icon('i-check', 13)} 标记已解决</button>`}
             <button data-edit-record="${escapeHtml(r['记录编号'])}">编辑</button>
-            <button class="del-btn" data-del-record="${escapeHtml(r['记录编号'])}">删除</button>
+            ${isAccountAdmin ? `<button class="del-btn" data-del-record="${escapeHtml(r['记录编号'])}">删除</button>` : ''}
           </div>
         </div>`;
       }).join('')
@@ -2576,6 +2583,7 @@ async function openRoomDetail(building, roomName) {
       <div class="cause-list">${causeHtml}</div>
     </div>
 
+    ${isAccountAdmin ? `
     <div class="edit-form">
       <div class="edit-field">
         <label>电脑总数</label>
@@ -2591,6 +2599,7 @@ async function openRoomDetail(building, roomName) {
         <button class="btn-danger" id="del-room">删除该教室</button>
       </div>
     </div>
+    ` : ''}
   `;
 
   // 环形图：正常 / 可自修 / 损坏 三段（加起来等于电脑总数）
@@ -2661,7 +2670,7 @@ async function openRoomDetail(building, roomName) {
   // 删除某条故障记录
   document.querySelectorAll('[data-del-record]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm(`确定删除记录 ${btn.dataset.delRecord}？`)) return;
+      if (!confirm(`确定删除这条报修记录？`)) return;
       await fetch('/api/records/' + encodeURIComponent(btn.dataset.delRecord), {
         method: 'DELETE',
       });
@@ -2682,7 +2691,7 @@ async function openRoomDetail(building, roomName) {
   });
 
   // 保存（电脑总数 / 备注）—— 损坏台数由台账推导，不在这里填
-  $('#save-room').addEventListener('click', async () => {
+  $('#save-room')?.addEventListener('click', async () => {
     const res2 = await fetch('/api/classrooms/room', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -2701,7 +2710,7 @@ async function openRoomDetail(building, roomName) {
   });
 
   // 删除
-  $('#del-room').addEventListener('click', async () => {
+  $('#del-room')?.addEventListener('click', async () => {
     if (!confirm(`确定删除教室「${roomName}」？`)) return;
     await fetch('/api/classrooms/room', {
       method: 'DELETE',

@@ -17,7 +17,7 @@ import sys
 import time
 import uuid
 
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, g
 
 # 确保能导入同目录模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +32,8 @@ import overview
 import version
 import paths
 import config
+import auth
+import audit
 
 # Flask 应用配置
 #
@@ -45,22 +47,13 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, 'web', 'templates'),
     static_folder=os.path.join(BASE_DIR, 'web', 'static'),
 )
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-me')
-
-# 首次运行时把知识库等初始文件铺到数据目录。
-# 只补缺失的文件，不会覆盖已有数据；仓库里这些文件本来就在，所以是空操作。
 paths.ensure_seed_files()
-
-# 默认密钥只适合本机自用。若部署到能被他人访问的环境，
-# 任何人都能伪造 session。这里在启动时明确警告，避免被忽略。
-if app.secret_key == 'dev-secret-change-me':
-    print('[警告] 正在使用默认 FLASK_SECRET_KEY，仅适合本机演示。')
-    print('       部署到内网或公网前，请先设置环境变量 FLASK_SECRET_KEY。')
 
 # 会话存储：session_id -> DiagnosisSession
 # 说明：内存存储，重启服务后丢失。对于机房现场使用足够。
 #       后续如需持久化可改为文件或数据库。
 SESSIONS = {}
+auth.install(app, lambda sid: SESSIONS.pop(sid, None), repair_log.init_file)
 
 # 单个会话的空闲存活时间（秒）与最大会话数
 #
@@ -168,6 +161,7 @@ def index():
         asset_version=_asset_version(),
         server_start=SERVER_START,
         app_version=version.VERSION,
+        csrf=auth.csrf_token(),
     )
 
 
@@ -218,6 +212,7 @@ def api_chat():
         if finished:
             status = _status_for_session(ds)
             rid = repair_log.add_record(
+                actor=g.user,
                 classroom=ds.classroom or '未填写',
                 symptom=ds.symptom,
                 conclusion=reply,
@@ -310,6 +305,8 @@ def api_chat_stream():
     if not ds.symptom:
         ds.set_symptom(message)
 
+    auth_token = session.get('auth_token')
+
     def generate():
         try:
             for chunk in ds.send_stream(message):
@@ -332,7 +329,12 @@ def api_chat_stream():
                         target = ai_diagnosis.infer_target(
                             ds.symptom, reply_text)
 
+                        actor = auth.current_user(auth_token)
+                        if not actor:
+                            yield 'data: {"type":"error","message":"登录已过期，请重新登录"}\n\n'
+                            return
                         rid = repair_log.add_record(
+                            actor=actor,
                             classroom=payload.get('classroom') or '未填写',
                             symptom=ds.symptom,
                             conclusion=reply_text,
@@ -416,13 +418,15 @@ def api_records():
 def api_update_record(record_id):
     """修改记录状态"""
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or set(data) - {'status', 'note'} or not isinstance(data.get('note', ''), str):
+        return auth.error('无效的状态或备注', 400)
     new_status = data.get('status', '')
     note = data.get('note', '')
 
-    ok, msg = repair_log.update_status(record_id, new_status, note)
+    ok, msg = repair_log.update_status(record_id, new_status, note, actor=g.user)
     if ok:
         return jsonify({'ok': True, 'message': msg})
-    return jsonify({'ok': False, 'message': msg}), 400
+    return jsonify({'ok': False, 'message': msg}), (404 if new_status in repair_log.ALL_STATUS else 400)
 
 
 @app.route('/api/records/<record_id>', methods=['PUT'])
@@ -435,15 +439,17 @@ def api_edit_record(record_id):
     只传需要修改的字段即可。
     """
     data = request.get_json(silent=True) or {}
-    ok, msg = repair_log.update_record(record_id, **data)
-    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+    if not isinstance(data, dict) or set(data) - {'symptom', 'conclusion', 'note', 'classroom', 'building', 'quantity'}:
+        return auth.error('包含不允许修改的字段', 400)
+    ok, msg = repair_log.update_record(record_id, actor=g.user, **data)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 404)
 
 
 @app.route('/api/records/<record_id>', methods=['DELETE'])
 def api_delete_record(record_id):
     """删除一条报修记录"""
-    ok, msg = repair_log.delete_record(record_id)
-    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 400)
+    ok, msg = repair_log.delete_record(record_id, actor=g.user)
+    return jsonify({'ok': ok, 'message': msg}), (200 if ok else 404)
 
 
 @app.route('/api/records/manual', methods=['POST'])
@@ -472,6 +478,9 @@ def api_manual_record():
       也兼容单条写法（symptom + conclusion + quantity）。
     """
     d = request.get_json(silent=True) or {}
+    protected = {'上报人', '最后修改人', '删除标记', 'actor'}
+    if not isinstance(d, dict) or protected.intersection(d):
+        return auth.error('包含不允许填写的字段', 400)
     classroom_name = (d.get('classroom') or '').strip()
     building = (d.get('building') or '').strip()
 
@@ -492,12 +501,16 @@ def api_manual_record():
         }]
 
     # 校验状态合法性
+    if not isinstance(faults, list) or any(
+        not isinstance(fault, dict) or protected.intersection(fault) for fault in faults
+    ):
+        return auth.error('故障列表无效或包含不允许填写的字段', 400)
     for f in faults:
         st = f.get('status') or repair_log.STATUS_PENDING
         if st not in repair_log.ALL_STATUS:
             f['status'] = repair_log.STATUS_PENDING
 
-    n, ids, err = repair_log.register_faults(building, classroom_name, faults)
+    n, ids, err = repair_log.register_faults(building, classroom_name, faults, actor=g.user)
     if err:
         return jsonify({'ok': False, 'message': err}), 400
 
@@ -507,6 +520,21 @@ def api_manual_record():
         'count': n,
         'message': f'已登记 {n} 条故障（{", ".join(ids)}）',
     })
+
+
+@app.get('/api/audit')
+def api_audit():
+    try:
+        limit = int(request.args.get('limit', '50'))
+        if not 1 <= limit <= 200:
+            raise ValueError
+        events, cursor = audit.read_page(
+            repair_log.RECORD_FILE, request.args.get('cursor'), limit,
+            **{key: request.args.get(key, '') for key in ('q', 'action', 'start', 'end')},
+            order=request.args.get('order', 'desc'))
+    except ValueError:
+        return auth.error('无效的日志查询参数，请检查日期范围、排序和分页设置', 400)
+    return jsonify(events=events, next_cursor=cursor)
 
 
 @app.route('/api/export/repair', methods=['GET'])
